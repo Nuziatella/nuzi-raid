@@ -21,7 +21,7 @@ local Compat = loadModule("compat")
 local addon = {
     name = "Nuzi Raid",
     author = "Nuzi",
-    version = "1.1.3",
+    version = "1.2.0",
     desc = "Custom raid frames"
 }
 

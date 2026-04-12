@@ -6,14 +6,19 @@ Shared.CONSTANTS = {
     ADDON_ID = "nuzi-raid",
     LEGACY_ADDON_ID = "polar-raid",
     TITLE = "Nuzi Raid",
-    VERSION = "1.1.3",
+    VERSION = "1.2.0",
     BUTTON_ID = "polarRaidSettingsButton",
     WINDOW_ID = "polarRaidSettingsWindow",
-    SETTINGS_FILE_PATH = "nuzi-raid/settings.txt",
+    SETTINGS_FILE_PATH = "nuzi-raid/.data/settings.txt",
     LEGACY_SETTINGS_FILE_PATH = "polar-raid/settings.txt",
-    SETTINGS_BACKUP_INDEX_FILE_PATH = "nuzi-raid/backups/index.txt",
-    SETTINGS_BACKUP_INDEX_FALLBACK_FILE_PATH = "nuzi-raid/settings_backup_index.txt",
-    SETTINGS_BACKUP_DIR = "nuzi-raid/backups",
+    LEGACY_LOCAL_SETTINGS_FILE_PATH = "nuzi-raid/settings.txt",
+    SETTINGS_BACKUP_INDEX_FILE_PATH = "nuzi-raid/.data/backups/index.txt",
+    LEGACY_SETTINGS_BACKUP_INDEX_FILE_PATH = "nuzi-raid/backups/index.txt",
+    SETTINGS_BACKUP_INDEX_FALLBACK_FILE_PATH = "nuzi-raid/.data/settings_backup_index.txt",
+    LEGACY_SETTINGS_BACKUP_INDEX_FALLBACK_FILE_PATH = "nuzi-raid/settings_backup_index.txt",
+    SETTINGS_BACKUP_DIR = "nuzi-raid/.data/backups",
+    SETTINGS_BACKUP_FILE_PATH = "nuzi-raid/.data/settings_backup.txt",
+    LEGACY_SETTINGS_BACKUP_FILE_PATH = "nuzi-raid/settings_backup.txt",
     LEGACY_POLAR_UI_SETTINGS_PATH = "polar-ui/settings.txt"
 }
 
@@ -219,7 +224,10 @@ function Shared.LoadSettings()
     if type(loaded) == "table" then
         Shared.state.settings = loaded
     else
-        local legacyLoaded = readTableFile(Shared.CONSTANTS.LEGACY_SETTINGS_FILE_PATH)
+        local legacyLoaded = readTableFile(Shared.CONSTANTS.LEGACY_LOCAL_SETTINGS_FILE_PATH)
+        if type(legacyLoaded) ~= "table" then
+            legacyLoaded = readTableFile(Shared.CONSTANTS.LEGACY_SETTINGS_FILE_PATH)
+        end
         if type(legacyLoaded) == "table" then
             Shared.state.settings = legacyLoaded
             migrated = true
@@ -284,7 +292,7 @@ function Shared.SaveSettingsBackup()
     local backupPath = string.format("%s/settings_%s.txt", Shared.CONSTANTS.SETTINGS_BACKUP_DIR, ts)
     local ok, err = writeTableFile(backupPath, settings)
     if not ok then
-        backupPath = string.format("nuzi-raid/settings_backup_%s.txt", ts)
+        backupPath = string.format("nuzi-raid/.data/settings_backup_%s.txt", ts)
         ok, err = writeTableFile(backupPath, settings)
         if not ok then
             return false, err
@@ -294,6 +302,12 @@ function Shared.SaveSettingsBackup()
     local idx = readTableFile(Shared.CONSTANTS.SETTINGS_BACKUP_INDEX_FILE_PATH)
     if type(idx) ~= "table" then
         idx = readTableFile(Shared.CONSTANTS.SETTINGS_BACKUP_INDEX_FALLBACK_FILE_PATH)
+    end
+    if type(idx) ~= "table" then
+        idx = readTableFile(Shared.CONSTANTS.LEGACY_SETTINGS_BACKUP_INDEX_FILE_PATH)
+    end
+    if type(idx) ~= "table" then
+        idx = readTableFile(Shared.CONSTANTS.LEGACY_SETTINGS_BACKUP_INDEX_FALLBACK_FILE_PATH)
     end
     if type(idx) ~= "table" then
         idx = { version = 1, backups = {} }
@@ -318,6 +332,12 @@ function Shared.ImportLatestBackup()
     if type(idx) ~= "table" then
         idx = readTableFile(Shared.CONSTANTS.SETTINGS_BACKUP_INDEX_FALLBACK_FILE_PATH)
     end
+    if type(idx) ~= "table" then
+        idx = readTableFile(Shared.CONSTANTS.LEGACY_SETTINGS_BACKUP_INDEX_FILE_PATH)
+    end
+    if type(idx) ~= "table" then
+        idx = readTableFile(Shared.CONSTANTS.LEGACY_SETTINGS_BACKUP_INDEX_FALLBACK_FILE_PATH)
+    end
     if type(idx) ~= "table" or type(idx.backups) ~= "table" or idx.backups[1] == nil then
         return false, "No backup found"
     end
@@ -329,6 +349,9 @@ function Shared.ImportLatestBackup()
     end
 
     local loaded = readTableFile(path)
+    if type(loaded) ~= "table" then
+        loaded = readTableFile(Shared.CONSTANTS.LEGACY_SETTINGS_BACKUP_FILE_PATH)
+    end
     if type(loaded) ~= "table" then
         return false, "Failed to read backup"
     end
