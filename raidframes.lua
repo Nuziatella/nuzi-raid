@@ -1,21 +1,20 @@
 local api = require("api")
+local Require = require("nuzi-core/require")
 
 local function loadModule(name)
-    local ok, mod = pcall(require, "nuzi-raid/" .. name)
-    if ok then
-        return mod
-    end
-    ok, mod = pcall(require, "nuzi-raid." .. name)
-    if ok then
-        return mod
-    end
-    return nil
+    local mod = Require.Addon("nuzi-raid", name)
+    return mod
 end
 
 local Shared = loadModule("shared")
 local Runtime = loadModule("runtime")
 local Compat = loadModule("compat")
 local Overlay = loadModule("overlay_utils")
+local globals = type(_G) == "table" and _G or nil
+local ALIGN_REF = type(ALIGN) == "table" and ALIGN or (globals ~= nil and globals.ALIGN or nil)
+local ActivatePopupMenuRef = type(ActivatePopupMenu) == "function" and ActivatePopupMenu or (globals ~= nil and globals.ActivatePopupMenu or nil)
+local CreateUnitFrameRef = type(CreateUnitFrame) == "function" and CreateUnitFrame or (globals ~= nil and globals.CreateUnitFrame or nil)
+local StatusBarStyleRef = type(STATUSBAR_STYLE) == "table" and STATUSBAR_STYLE or (globals ~= nil and globals.STATUSBAR_STYLE or nil)
 
 local RaidFrames = {
     container = nil,
@@ -40,6 +39,16 @@ local TEAM_ROLE_COLORS = {
     healer = { 255, 120, 205, 255 },
     attacker = { 255, 95, 95, 255 },
     undecided = { 110, 170, 255, 255 }
+}
+local CLASS_NAME_COLOR_PALETTE = {
+    { 255, 112, 112, 255 },
+    { 255, 178, 82, 255 },
+    { 255, 228, 109, 255 },
+    { 141, 219, 109, 255 },
+    { 92, 213, 189, 255 },
+    { 104, 177, 255, 255 },
+    { 162, 133, 255, 255 },
+    { 242, 126, 214, 255 }
 }
 
 local DEFAULT_HP_COLOR = { 223, 69, 69, 255 }
@@ -75,11 +84,27 @@ local function trim(value)
 end
 
 local function safeShow(widget, show)
-    Overlay.SafeShow(widget, show)
+    if Overlay ~= nil and Overlay.SafeShow ~= nil then
+        Overlay.SafeShow(widget, show)
+        return
+    end
+    if widget ~= nil and widget.Show ~= nil then
+        pcall(function()
+            widget:Show(show and true or false)
+        end)
+    end
 end
 
 local function safeSetAlpha(widget, alpha)
-    Overlay.SafeSetAlpha(widget, alpha)
+    if Overlay ~= nil and Overlay.SafeSetAlpha ~= nil then
+        Overlay.SafeSetAlpha(widget, alpha)
+        return
+    end
+    if widget ~= nil and widget.SetAlpha ~= nil then
+        pcall(function()
+            widget:SetAlpha(alpha)
+        end)
+    end
 end
 
 local function safeSetText(widget, text)
@@ -89,6 +114,53 @@ local function safeSetText(widget, text)
     pcall(function()
         widget:SetText(tostring(text or ""))
     end)
+end
+
+local function safeApplyBarTexture(bar, style)
+    if bar == nil or style == nil or bar.ApplyBarTexture == nil then
+        return
+    end
+    pcall(function()
+        bar:ApplyBarTexture(style)
+    end)
+end
+
+local function safeSetWidgetTarget(widget, unit, unitId, name)
+    if widget == nil or widget.SetTarget == nil then
+        return false
+    end
+    local candidates = { unit, unitId, name }
+    for _, candidate in ipairs(candidates) do
+        local value = trim(candidate)
+        if value ~= "" then
+            local ok = pcall(function()
+                widget:SetTarget(candidate)
+            end)
+            if ok then
+                return true
+            end
+        end
+    end
+    return false
+end
+
+local function safeAssignWidgetField(widget, key, value)
+    if widget == nil or key == nil then
+        return
+    end
+    pcall(function()
+        widget[key] = value
+    end)
+end
+
+local function getBarValueTarget(bar)
+    if bar == nil then
+        return nil
+    end
+    if bar.statusBar ~= nil then
+        return bar.statusBar
+    end
+    return bar
 end
 
 local function safeSetExtent(widget, width, height)
@@ -107,6 +179,18 @@ local function safeSetHeight(widget, height)
     pcall(function()
         widget:SetHeight(height)
     end)
+end
+
+local function safeClickable(widget, clickable)
+    if Overlay ~= nil and Overlay.SafeClickable ~= nil then
+        Overlay.SafeClickable(widget, clickable)
+        return
+    end
+    if widget ~= nil and widget.Clickable ~= nil then
+        pcall(function()
+            widget:Clickable(clickable and true or false)
+        end)
+    end
 end
 
 local function safeAnchor(widget, point, target, targetPoint, x, y)
@@ -166,11 +250,28 @@ local function safeApplyBarColor(statusBar, rgba)
     local g = clamp(rgba[2], 0, 255, 255) / 255
     local b = clamp(rgba[3], 0, 255, 255) / 255
     local a = clamp(rgba[4], 0, 255, 255) / 255
+    local function applyColor(widget)
+        if widget == nil then
+            return
+        end
+        pcall(function()
+            if widget.SetBarColor ~= nil then
+                widget:SetBarColor(r, g, b, a)
+            end
+        end)
+        pcall(function()
+            if widget.SetColor ~= nil then
+                widget:SetColor(r, g, b, a)
+            end
+        end)
+    end
     pcall(function()
-        if statusBar.SetBarColor ~= nil then
-            statusBar:SetBarColor(r, g, b, a)
-        elseif statusBar.SetColor ~= nil then
-            statusBar:SetColor(r, g, b, a)
+        applyColor(statusBar)
+        if statusBar.statusBar ~= nil then
+            applyColor(statusBar.statusBar)
+        end
+        if statusBar.statusBarAfterImage ~= nil then
+            applyColor(statusBar.statusBarAfterImage)
         end
     end)
 end
@@ -262,10 +363,10 @@ local function mapRoleId(roleId)
         return "defender"
     end
     if tonumber(roleId) == 2 then
-        return "attacker"
+        return "healer"
     end
     if tonumber(roleId) == 3 then
-        return "healer"
+        return "attacker"
     end
     return "undecided"
 end
@@ -290,6 +391,45 @@ local function getTeamRoleKey(name)
     return mapRoleId(roleId)
 end
 
+local function safeTeamPlayerIndex()
+    if api.Team ~= nil and api.Team.GetTeamPlayerIndex ~= nil then
+        local ok, value = pcall(function()
+            return api.Team:GetTeamPlayerIndex()
+        end)
+        if ok and tonumber(value) ~= nil then
+            return tonumber(value)
+        end
+        ok, value = pcall(function()
+            return api.Team.GetTeamPlayerIndex(api.Team)
+        end)
+        if ok and tonumber(value) ~= nil then
+            return tonumber(value)
+        end
+    end
+
+    local playerName = Runtime ~= nil and Runtime.GetPlayerName ~= nil and Runtime.GetPlayerName() or ""
+    playerName = trim(playerName)
+    if playerName ~= "" and api.Team ~= nil and api.Team.GetMemberIndexByName ~= nil then
+        local ok, value = pcall(function()
+            return api.Team:GetMemberIndexByName(playerName)
+        end)
+        if ok and tonumber(value) ~= nil then
+            return tonumber(value)
+        end
+    end
+
+    return nil
+end
+
+local function getRaidPopupKind(frame)
+    local clickedIndex = frame ~= nil and tonumber(frame.__raid_member_index or frame.memberIndex or frame.index) or nil
+    local myIndex = safeTeamPlayerIndex()
+    if clickedIndex ~= nil and myIndex ~= nil and clickedIndex == myIndex then
+        return "player"
+    end
+    return "team"
+end
+
 local function getRolePrefix(roleKey)
     if roleKey == "defender" then
         return "D "
@@ -304,6 +444,33 @@ local function getRolePrefix(roleKey)
         return "U "
     end
     return ""
+end
+
+local function getRoleBadge(roleKey, hideDps)
+    if roleKey == "defender" then
+        return "[D]"
+    end
+    if roleKey == "healer" then
+        return "[H]"
+    end
+    if roleKey == "attacker" then
+        return hideDps and "" or "[A]"
+    end
+    if roleKey == "undecided" then
+        return "[U]"
+    end
+    return ""
+end
+
+local function getClassBadge(className)
+    local clean = trim(className)
+    if clean == "" then
+        return ""
+    end
+    if string.len(clean) <= 3 then
+        return string.upper(clean)
+    end
+    return string.upper(string.sub(clean, 1, 3))
 end
 
 local function formatName(name, maxChars)
@@ -363,6 +530,97 @@ local function safeUnitInfo(unit)
     return nil
 end
 
+local function safeUnitInfoById(unitId)
+    if unitId == nil or api.Unit == nil or api.Unit.GetUnitInfoById == nil then
+        return nil
+    end
+    local ok, info = pcall(function()
+        return api.Unit:GetUnitInfoById(unitId)
+    end)
+    if ok and type(info) == "table" then
+        return info
+    end
+    return nil
+end
+
+local function firstNumber(...)
+    local values = { ... }
+    for index = 1, #values do
+        local value = tonumber(values[index])
+        if value ~= nil then
+            return value
+        end
+    end
+    return nil
+end
+
+local function isRightClick(button)
+    if tonumber(button) == 2 then
+        return true
+    end
+    local text = string.lower(tostring(button or ""))
+    return text == "rightbutton"
+        or text == "rightbuttonup"
+        or text == "rightbuttondown"
+        or text == "rbutton"
+        or text == "rbuttonup"
+        or text == "rbuttondown"
+        or string.find(text, "right", 1, true) ~= nil
+        or string.find(text, "rbutton", 1, true) ~= nil
+        or text == "button2"
+end
+
+local function extractVitalsFromInfo(info)
+    if type(info) ~= "table" then
+        return nil, nil, nil, nil
+    end
+    local hp = firstNumber(
+        info.curHp,
+        info.curHP,
+        info.currentHp,
+        info.currentHP,
+        info.hp,
+        info.health,
+        info.cur_health,
+        info.current_health
+    )
+    local maxHp = firstNumber(
+        info.maxHp,
+        info.maxHP,
+        info.maxHealth,
+        info.max_health,
+        info.healthMax,
+        info.health_max,
+        info.hpMax,
+        info.hp_max
+    )
+    local mp = firstNumber(
+        info.curMp,
+        info.curMP,
+        info.currentMp,
+        info.currentMP,
+        info.mp,
+        info.mana,
+        info.cur_mana,
+        info.current_mana
+    )
+    local maxMp = firstNumber(
+        info.maxMp,
+        info.maxMP,
+        info.maxMana,
+        info.max_mana,
+        info.manaMax,
+        info.mana_max,
+        info.mpMax,
+        info.mp_max
+    )
+    return hp, maxHp, mp, maxMp
+end
+
+local function hasUsableVitals(current, maximum)
+    return type(current) == "number" and current >= 0 and type(maximum) == "number" and maximum > 0
+end
+
 local function safeUnitModifierInfo(unit)
     if api.Unit == nil or api.Unit.UnitModifierInfo == nil then
         return nil
@@ -374,6 +632,43 @@ local function safeUnitModifierInfo(unit)
         return info
     end
     return nil
+end
+
+local function safeUnitClassName(unit, info)
+    if type(info) == "table" then
+        local fromInfo = trim(
+            info.className
+            or info.class_name
+            or info.unitClass
+            or info.unit_class
+            or info.jobName
+            or info.job_name
+        )
+        if fromInfo ~= "" then
+            return fromInfo
+        end
+    end
+
+    if api.Ability ~= nil and api.Ability.GetUnitClassName ~= nil then
+        local ok, value = pcall(function()
+            return api.Ability:GetUnitClassName(unit)
+        end)
+        value = trim(value)
+        if ok and value ~= "" then
+            return value
+        end
+    end
+
+    if api.Unit ~= nil and api.Unit.UnitClass ~= nil then
+        local okClass, classId = pcall(function()
+            return api.Unit:UnitClass(unit)
+        end)
+        if okClass then
+            return trim(classId)
+        end
+    end
+
+    return ""
 end
 
 local function safeUnitName(unit, info, unitId)
@@ -415,32 +710,44 @@ local function safeUnitId(unit)
     if unitId == nil then
         return nil
     end
-    return tostring(unitId)
+    return tonumber(unitId) or unitId
 end
 
-local function safeUnitHealth(unit)
+local function safeUnitHealth(unit, unitId)
     if api.Unit == nil then
-        return 0, 0, 0, 0
+        return nil, nil, nil, nil
     end
-    local hp = 0
-    local maxHp = 0
-    local mp = 0
-    local maxMp = 0
+    local info = safeUnitInfo(unit)
+    local hp, maxHp, mp, maxMp = extractVitalsFromInfo(info)
+    local byIdInfo = safeUnitInfoById(unitId)
+    local idHp, idMaxHp, idMp, idMaxMp = extractVitalsFromInfo(byIdInfo)
+    hp = firstNumber(idHp, hp)
+    maxHp = firstNumber(idMaxHp, maxHp)
+    mp = firstNumber(idMp, mp)
+    maxMp = firstNumber(idMaxMp, maxMp)
     pcall(function()
+        local directHp = nil
+        local directMaxHp = nil
+        local directMp = nil
+        local directMaxMp = nil
         if api.Unit.UnitHealth ~= nil then
-            hp = tonumber(api.Unit:UnitHealth(unit)) or 0
+            directHp = tonumber(api.Unit:UnitHealth(unit))
         end
         if api.Unit.UnitMaxHealth ~= nil then
-            maxHp = tonumber(api.Unit:UnitMaxHealth(unit)) or 0
+            directMaxHp = tonumber(api.Unit:UnitMaxHealth(unit))
         end
         if api.Unit.UnitMana ~= nil then
-            mp = tonumber(api.Unit:UnitMana(unit)) or 0
+            directMp = tonumber(api.Unit:UnitMana(unit))
         end
         if api.Unit.UnitMaxMana ~= nil then
-            maxMp = tonumber(api.Unit:UnitMaxMana(unit)) or 0
+            directMaxMp = tonumber(api.Unit:UnitMaxMana(unit))
         end
+        hp = firstNumber(directHp, hp)
+        maxHp = firstNumber(directMaxHp, maxHp)
+        mp = firstNumber(directMp, mp)
+        maxMp = firstNumber(directMaxMp, maxMp)
     end)
-    return hp, maxHp, mp, maxMp
+    return tonumber(hp), tonumber(maxHp), tonumber(mp), tonumber(maxMp)
 end
 
 local function safeUnitDistance(unit)
@@ -479,6 +786,30 @@ local function safeDebuffCount(unit)
     return 0
 end
 
+local function safeDebuffInfo(unit, index)
+    if api.Unit == nil or api.Unit.UnitDeBuff == nil then
+        return nil
+    end
+    local ok, info = pcall(function()
+        return api.Unit:UnitDeBuff(unit, index)
+    end)
+    if ok and type(info) == "table" then
+        return info
+    end
+    return nil
+end
+
+local function hasDispellableDebuff(unit, count)
+    local total = clamp(count, 0, 40, 0)
+    for index = 1, total do
+        local info = safeDebuffInfo(unit, index)
+        if truthyMatch(info, { "dispel", "dispell", "cleanse", "purge", "remove", "cure", "removable" }, 2) then
+            return true
+        end
+    end
+    return false
+end
+
 local function getUnitState(info, modifier, hp, maxHp, offline)
     local dead = false
     if not offline and tonumber(maxHp) ~= nil and tonumber(maxHp) > 0 and tonumber(hp) ~= nil and tonumber(hp) <= 0 then
@@ -513,6 +844,76 @@ local function getValueText(mode, cur, max, kind)
         return "0%"
     end
     return string.format("%d%%", math.floor(((current / total) * 100) + 0.5))
+end
+
+local function mergeResourceValues(current, maximum, lastCurrent, lastMaximum)
+    local mergedCurrent = firstNumber(current, lastCurrent)
+    local mergedMaximum = firstNumber(maximum, lastMaximum)
+    if hasUsableVitals(mergedCurrent, mergedMaximum) then
+        return mergedCurrent, mergedMaximum
+    end
+    return tonumber(current), tonumber(maximum)
+end
+
+local function hashText(value)
+    local hash = 0
+    local text = tostring(value or "")
+    for index = 1, string.len(text) do
+        hash = (hash * 33 + string.byte(text, index)) % 2147483647
+    end
+    return hash
+end
+
+local function getClassColor(className)
+    local clean = trim(className)
+    if clean == "" then
+        return nil
+    end
+    local paletteIndex = (hashText(string.lower(clean)) % #CLASS_NAME_COLOR_PALETTE) + 1
+    return CLASS_NAME_COLOR_PALETTE[paletteIndex]
+end
+
+local function getHpTextureStyle(settings)
+    local mode = "stock"
+    if type(settings) == "table" and type(settings.style) == "table" then
+        mode = tostring(settings.style.hp_texture_mode or "stock")
+    end
+    if StatusBarStyleRef == nil then
+        return nil
+    end
+    if mode == "pc" then
+        return StatusBarStyleRef.S_HP_PARTY
+            or StatusBarStyleRef.S_HP_FRIENDLY
+            or StatusBarStyleRef.L_HP_FRIENDLY
+    end
+    if mode == "npc" then
+        return StatusBarStyleRef.S_HP_FRIENDLY
+            or StatusBarStyleRef.S_HP_PARTY
+            or StatusBarStyleRef.S_HP_NEUTRAL
+            or StatusBarStyleRef.S_HP_HOSTILE
+            or StatusBarStyleRef.S_HP_PREEMTIVE_STRIKE
+    end
+    return StatusBarStyleRef.S_HP_PARTY
+        or StatusBarStyleRef.S_HP_FRIENDLY
+        or StatusBarStyleRef.L_HP_FRIENDLY
+end
+
+local function applyFrameTextures(frame, settings)
+    if frame == nil then
+        return
+    end
+    local hpStyle = getHpTextureStyle(settings)
+    local mpStyle = StatusBarStyleRef ~= nil and StatusBarStyleRef.S_MP or nil
+    local textureKey = table.concat({
+        tostring(hpStyle or "nil"),
+        tostring(mpStyle or "nil")
+    }, "|")
+    if frame.__nr_texture_key == textureKey then
+        return
+    end
+    frame.__nr_texture_key = textureKey
+    safeApplyBarTexture(frame.hpBar, hpStyle)
+    safeApplyBarTexture(frame.mpBar, mpStyle)
 end
 
 local function getFrameHeight(cfg)
@@ -551,9 +952,10 @@ local function savePosition()
     local raid = settings.raidframes
     local x = nil
     local y = nil
-    if RaidFrames.container ~= nil and RaidFrames.container.GetOffset ~= nil then
+    local container = RaidFrames.container
+    if container ~= nil and type(container.GetOffset) == "function" then
         pcall(function()
-            x, y = RaidFrames.container:GetOffset()
+            x, y = container:GetOffset()
         end)
     end
     if type(x) == "number" then
@@ -600,8 +1002,8 @@ local function ensureContainer()
         if dragHandle.style ~= nil then
             dragHandle.style:SetFontSize(10)
             dragHandle.style:SetColor(0.82, 0.82, 0.82, 0.8)
-            if dragHandle.style.SetAlign ~= nil then
-                dragHandle.style:SetAlign(ALIGN.LEFT)
+            if dragHandle.style.SetAlign ~= nil and ALIGN_REF ~= nil and ALIGN_REF.LEFT ~= nil then
+                dragHandle.style:SetAlign(ALIGN_REF.LEFT)
             end
         end
         dragHandle:AddAnchor("TOPLEFT", wnd, 0, -DRAG_HANDLE_HEIGHT)
@@ -706,8 +1108,8 @@ local function ensureGroupHeader(groupIndex)
         if header.style ~= nil then
             header.style:SetFontSize(11)
             header.style:SetColor(0.92, 0.82, 0.35, 1)
-            if header.style.SetAlign ~= nil then
-                header.style:SetAlign(ALIGN.LEFT)
+            if header.style.SetAlign ~= nil and ALIGN_REF ~= nil and ALIGN_REF.LEFT ~= nil then
+                header.style:SetAlign(ALIGN_REF.LEFT)
             end
         end
     end)
@@ -725,15 +1127,72 @@ local function createRaidBar(frameId, parent)
         bar = W_BAR.CreateStatusBarOfRaidFrame(frameId, parent)
         if bar ~= nil then
             bar:Show(true)
-            if bar.Clickable ~= nil then
-                bar:Clickable(false)
-            end
+            safeClickable(bar, false)
+            safeClickable(bar.statusBar, false)
         end
     end)
     return bar
 end
 
-local function targetUnit(unit)
+local function showPopupMenu(frame)
+    if frame == nil or ActivatePopupMenuRef == nil then
+        return false
+    end
+    local owners = {
+        frame.__nr_popup_owner,
+        frame.popupOwner ~= nil and frame.popupOwner.eventWindow or nil,
+        frame.popupOwner,
+        frame,
+        frame.eventWindow
+    }
+    local attempted = false
+    for _, owner in ipairs(owners) do
+        if owner ~= nil then
+            if owner.Click ~= nil then
+                pcall(function()
+                    owner:Click("RightButton")
+                end)
+                pcall(function()
+                    owner:Click("RightButtonUp")
+                end)
+            end
+            local ok = pcall(function()
+                ActivatePopupMenuRef(owner, "team")
+            end)
+            if ok then
+                attempted = true
+            end
+        end
+    end
+    return attempted
+end
+
+local targetUnit
+
+local function showPopupMenuViaTargetFrame(unit)
+    if trim(unit) == "" or ActivatePopupMenuRef == nil or Runtime == nil or UIC == nil or UIC.TARGET_UNITFRAME == nil then
+        return false
+    end
+    targetUnit(unit)
+    local targetFrame = Runtime.GetStockContent(UIC.TARGET_UNITFRAME)
+    if targetFrame == nil then
+        return false
+    end
+    pcall(function()
+        ActivatePopupMenuRef(targetFrame, "target")
+    end)
+    if targetFrame.Click ~= nil then
+        pcall(function()
+            targetFrame:Click("RightButton")
+        end)
+        pcall(function()
+            targetFrame:Click("RightButtonUp")
+        end)
+    end
+    return true
+end
+
+targetUnit = function(unit)
     if trim(unit) == "" then
         return
     end
@@ -743,8 +1202,93 @@ local function targetUnit(unit)
             return
         end
         if api.Unit ~= nil and api.Unit.TargetUnit ~= nil then
-            api.Unit.TargetUnit(unit)
+            local ok = pcall(function()
+                api.Unit:TargetUnit(unit)
+            end)
+            if not ok then
+                api.Unit.TargetUnit(unit)
+            end
         end
+    end)
+end
+
+local function createEventWindow(frameId, parent)
+    if api.Interface == nil or api.Interface.CreateWidget == nil then
+        return nil
+    end
+    local eventWindow = nil
+    pcall(function()
+        eventWindow = api.Interface:CreateWidget("emptywidget", frameId .. ".eventWindow", parent)
+    end)
+    if eventWindow == nil then
+        pcall(function()
+            eventWindow = api.Interface:CreateWidget("button", frameId .. ".eventWindow", parent)
+        end)
+    end
+    if eventWindow == nil then
+        return nil
+    end
+    pcall(function()
+        eventWindow:Show(true)
+        if eventWindow.SetAlpha ~= nil then
+            eventWindow:SetAlpha(0)
+        end
+        if eventWindow.SetUILayer ~= nil then
+            eventWindow:SetUILayer("hud")
+        end
+        if eventWindow.EnablePick ~= nil then
+            eventWindow:EnablePick(true)
+        end
+        if eventWindow.Raise ~= nil then
+            eventWindow:Raise()
+        end
+    end)
+    safeClickable(eventWindow, true)
+    return eventWindow
+end
+
+local function createPopupOwner(frameId, parent)
+    if CreateUnitFrameRef == nil then
+        return nil
+    end
+    local owner = nil
+    local ok = pcall(function()
+        owner = CreateUnitFrameRef(frameId .. ".popup", parent)
+    end)
+    if not ok or owner == nil then
+        return nil
+    end
+    pcall(function()
+        owner:Show(true)
+        if owner.SetAlpha ~= nil then
+            owner:SetAlpha(0)
+        end
+        if owner.SetUILayer ~= nil then
+            owner:SetUILayer("hud")
+        end
+    end)
+    safeClickable(owner, false)
+    return owner
+end
+
+local function safeRegisterFrameClicks(widget)
+    if widget == nil or widget.RegisterForClicks == nil then
+        return
+    end
+    pcall(function()
+        widget:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+    end)
+    pcall(function()
+        widget:RegisterForClicks("LeftButton")
+    end)
+    pcall(function()
+        widget:RegisterForClicks("RightButton", false)
+    end)
+    pcall(function()
+        widget:RegisterForClicks("LeftButtonUp")
+    end)
+    pcall(function()
+        widget:RegisterForClicks("RightButtonUp", false)
     end)
 end
 
@@ -766,6 +1310,11 @@ local function createFrame(index)
     frame.hpBar = createRaidBar(frameId .. ".hpBar", frame)
     frame.mpBar = createRaidBar(frameId .. ".mpBar", frame)
     frame.debuffBadge = createColorDrawable(frame, "artwork", 1, 0.27, 0.27, 0.92)
+    frame.popupOwner = createPopupOwner(frameId, frame)
+    frame.eventWindow = createEventWindow(frameId, frame)
+    frame.clickOverlay = nil
+
+    applyFrameTextures(frame, RaidFrames.settings)
 
     local nameLabel = api.Interface:CreateWidget("label", frameId .. ".name", frame)
     pcall(function()
@@ -778,8 +1327,8 @@ local function createFrame(index)
         end
         if nameLabel.style ~= nil then
             nameLabel.style:SetColor(1, 1, 1, 1)
-            if nameLabel.style.SetAlign ~= nil then
-                nameLabel.style:SetAlign(ALIGN.LEFT)
+            if nameLabel.style.SetAlign ~= nil and ALIGN_REF ~= nil and ALIGN_REF.LEFT ~= nil then
+                nameLabel.style:SetAlign(ALIGN_REF.LEFT)
             end
         end
     end)
@@ -793,8 +1342,8 @@ local function createFrame(index)
         end
         if valueLabel.style ~= nil then
             valueLabel.style:SetColor(1, 1, 1, 1)
-            if valueLabel.style.SetAlign ~= nil then
-                valueLabel.style:SetAlign(ALIGN.RIGHT)
+            if valueLabel.style.SetAlign ~= nil and ALIGN_REF ~= nil and ALIGN_REF.RIGHT ~= nil then
+                valueLabel.style:SetAlign(ALIGN_REF.RIGHT)
             end
         end
     end)
@@ -808,23 +1357,72 @@ local function createFrame(index)
         end
         if statusLabel.style ~= nil then
             statusLabel.style:SetColor(1, 1, 1, 1)
-            if statusLabel.style.SetAlign ~= nil then
-                statusLabel.style:SetAlign(ALIGN.CENTER)
+            if statusLabel.style.SetAlign ~= nil and ALIGN_REF ~= nil and ALIGN_REF.CENTER ~= nil then
+                statusLabel.style:SetAlign(ALIGN_REF.CENTER)
             end
         end
     end)
     frame.statusLabel = statusLabel
 
-    frame.OnClick = function(self)
-        targetUnit(self.__raid_unit or "")
+    local metaLabel = api.Interface:CreateWidget("label", frameId .. ".meta", frame)
+    pcall(function()
+        metaLabel:Show(true)
+        if metaLabel.SetAutoResize ~= nil then
+            metaLabel:SetAutoResize(false)
+        end
+        if metaLabel.style ~= nil then
+            metaLabel.style:SetColor(1, 1, 1, 0.95)
+            if metaLabel.style.SetAlign ~= nil and ALIGN_REF ~= nil and ALIGN_REF.LEFT ~= nil then
+                metaLabel.style:SetAlign(ALIGN_REF.LEFT)
+            end
+        end
+    end)
+    frame.metaLabel = metaLabel
+
+    local badgeLabel = api.Interface:CreateWidget("label", frameId .. ".badge", frame)
+    pcall(function()
+        badgeLabel:Show(true)
+        if badgeLabel.SetAutoResize ~= nil then
+            badgeLabel:SetAutoResize(false)
+        end
+        if badgeLabel.style ~= nil then
+            badgeLabel.style:SetColor(1, 0.9, 0.55, 1)
+            if badgeLabel.style.SetAlign ~= nil and ALIGN_REF ~= nil and ALIGN_REF.RIGHT ~= nil then
+                badgeLabel.style:SetAlign(ALIGN_REF.RIGHT)
+            end
+        end
+    end)
+    frame.badgeLabel = badgeLabel
+
+    local function handleFrameClick(self, button)
+        frame.__nr_popup_owner = frame.popupOwner or frame
+        if isRightClick(button) then
+            if not showPopupMenu(frame) then
+                showPopupMenuViaTargetFrame(frame.__raid_unit)
+            end
+            return
+        end
+        targetUnit((self ~= nil and (self.target or self.unit)) or frame.__raid_unit)
     end
+    local function handleFrameMouseUp(self, button)
+        frame.__nr_popup_owner = frame.popupOwner or frame
+        if isRightClick(button) then
+            if not showPopupMenu(frame) then
+                showPopupMenuViaTargetFrame(frame.__raid_unit)
+            end
+        end
+    end
+    frame.OnClick = handleFrameClick
 
     pcall(function()
-        if frame.SetHandler ~= nil then
-            frame:SetHandler("OnClick", frame.OnClick)
-        end
-        if frame.RegisterForClicks ~= nil then
-            frame:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+        safeClickable(frame, false)
+    end)
+    pcall(function()
+        if frame.eventWindow ~= nil and frame.eventWindow.SetHandler ~= nil then
+            frame.eventWindow:SetHandler("OnClick", frame.OnClick)
+            frame.eventWindow:SetHandler("OnMouseUp", handleFrameMouseUp)
+            safeClickable(frame.eventWindow, true)
+            safeRegisterFrameClicks(frame.eventWindow)
         end
     end)
 
@@ -851,6 +1449,10 @@ local function applyFrameLayout(frame, cfg)
     local nameOffsetY = clamp(cfg.name_offset_y, -40, 40, 0)
     local valueOffsetX = clamp(cfg.value_offset_x, -120, 120, 0)
     local valueOffsetY = clamp(cfg.value_offset_y, -40, 40, 0)
+    local iconSize = clamp(cfg.icon_size, 8, 24, 12)
+    local iconGap = clamp(cfg.icon_gap, 0, 24, 2)
+    local iconOffsetX = clamp(cfg.icon_offset_x, -120, 120, 0)
+    local iconOffsetY = clamp(cfg.icon_offset_y, -40, 40, 0)
 
     local layoutKey = table.concat({
         tostring(width),
@@ -862,7 +1464,11 @@ local function applyFrameLayout(frame, cfg)
         tostring(nameOffsetX),
         tostring(nameOffsetY),
         tostring(valueOffsetX),
-        tostring(valueOffsetY)
+        tostring(valueOffsetY),
+        tostring(iconSize),
+        tostring(iconGap),
+        tostring(iconOffsetX),
+        tostring(iconOffsetY)
     }, "|")
     if frame.__nr_layout_key == layoutKey then
         return
@@ -890,6 +1496,7 @@ local function applyFrameLayout(frame, cfg)
             frame.hpBar:AddAnchor("TOPRIGHT", frame, "TOPRIGHT", 0, 0)
         end)
         safeSetHeight(frame.hpBar, hpHeight)
+        safeSetHeight(getBarValueTarget(frame.hpBar), hpHeight)
     end
 
     if frame.mpBar ~= nil then
@@ -898,13 +1505,20 @@ local function applyFrameLayout(frame, cfg)
             frame.mpBar:AddAnchor("TOPRIGHT", frame, "TOPRIGHT", 0, hpHeight + 1)
         end)
         safeSetHeight(frame.mpBar, mpHeight)
+        safeSetHeight(getBarValueTarget(frame.mpBar), mpHeight)
         safeShow(frame.mpBar, showMp)
     end
 
     if frame.nameLabel ~= nil then
         safeSetFontSize(frame.nameLabel, nameFontSize)
         safeSetExtent(frame.nameLabel, math.max(24, width - 24), hpHeight)
-        safeAnchor(frame.nameLabel, "LEFT", frame, "LEFT", namePad + nameOffsetX, nameOffsetY)
+        safeAnchor(frame.nameLabel, "LEFT", frame, "LEFT", namePad + nameOffsetX + iconSize + iconGap, nameOffsetY)
+    end
+
+    if frame.metaLabel ~= nil then
+        safeSetFontSize(frame.metaLabel, iconSize)
+        safeSetExtent(frame.metaLabel, math.max(18, iconSize * 3), hpHeight)
+        safeAnchor(frame.metaLabel, "LEFT", frame, "LEFT", namePad + iconOffsetX, iconOffsetY)
     end
 
     if frame.valueLabel ~= nil then
@@ -919,9 +1533,28 @@ local function applyFrameLayout(frame, cfg)
         safeAnchor(frame.statusLabel, "CENTER", frame, "CENTER", 0, 0)
     end
 
+    if frame.badgeLabel ~= nil then
+        safeSetFontSize(frame.badgeLabel, iconSize)
+        safeSetExtent(frame.badgeLabel, math.max(28, width - 8), hpHeight)
+        safeAnchor(frame.badgeLabel, "RIGHT", frame, "RIGHT", -4 + iconOffsetX, iconOffsetY)
+    end
+
     if frame.debuffBadge ~= nil then
         safeAnchor(frame.debuffBadge, "TOPRIGHT", frame, "TOPRIGHT", -1, 1)
         safeSetExtent(frame.debuffBadge, 8, 8)
+    end
+
+    if frame.eventWindow ~= nil then
+        safeAnchor(frame.eventWindow, "TOPLEFT", frame, "TOPLEFT", 0, 0)
+        pcall(function()
+            frame.eventWindow:AddAnchor("BOTTOMRIGHT", frame, "BOTTOMRIGHT", 0, 0)
+        end)
+    end
+    if frame.popupOwner ~= nil then
+        safeAnchor(frame.popupOwner, "TOPLEFT", frame, "TOPLEFT", 0, 0)
+        pcall(function()
+            frame.popupOwner:AddAnchor("BOTTOMRIGHT", frame, "BOTTOMRIGHT", 0, 0)
+        end)
     end
 end
 
@@ -951,8 +1584,39 @@ local function buildMember(unit, index)
         unit_id = unitId,
         name = name,
         info = info,
+        class_name = safeUnitClassName(unit, info),
         role_key = getTeamRoleKey(name)
     }
+end
+
+local function refreshMemberSnapshot(member, refreshMetadata)
+    if type(member) ~= "table" then
+        return member
+    end
+    local info = safeUnitInfo(member.unit)
+    local unitId = safeUnitId(member.unit)
+    if unitId ~= nil and unitId ~= "" then
+        member.unit_id = unitId
+    end
+    if type(info) == "table" then
+        member.info = info
+    elseif member.unit_id ~= nil then
+        local byIdInfo = safeUnitInfoById(member.unit_id)
+        if type(byIdInfo) == "table" then
+            member.info = byIdInfo
+        end
+    end
+    local resolvedInfo = member.info
+    local resolvedUnitId = member.unit_id
+    local name = safeUnitName(member.unit, resolvedInfo, resolvedUnitId)
+    if name ~= "" then
+        member.name = name
+    end
+    if refreshMetadata then
+        member.class_name = safeUnitClassName(member.unit, resolvedInfo)
+        member.role_key = getTeamRoleKey(member.name)
+    end
+    return member
 end
 
 local function rebuildRoster(cfg)
@@ -985,7 +1649,12 @@ local function getFrameAlpha(frame, cfg, unit, state)
         end
         local maxDistance = clamp(cfg.range_max_distance, 1, 300, 80)
         if type(distance) == "number" and distance > maxDistance then
+            frame.__nr_has_seen_distance = true
             alpha = alpha * percent01(cfg.range_alpha_pct, 45)
+        elseif distance == nil and frame.__nr_has_seen_distance == true then
+            alpha = alpha * percent01(cfg.range_alpha_pct, 45)
+        elseif type(distance) == "number" then
+            frame.__nr_has_seen_distance = true
         end
     end
     return alpha
@@ -1002,14 +1671,14 @@ local function getHpColor(settings, cfg, member, state)
         return TEAM_ROLE_COLORS[member.role_key]
     end
     if settings ~= nil and type(settings.style) == "table" and settings.style.bar_colors_enabled and tostring(cfg.bar_style_mode or "shared") == "shared" then
-        return settings.style.hp_bar_color or settings.style.hp_fill_color or DEFAULT_HP_COLOR
+        return settings.style.hp_fill_color or settings.style.hp_bar_color or DEFAULT_HP_COLOR
     end
     return DEFAULT_HP_COLOR
 end
 
 local function getMpColor(settings, cfg)
     if settings ~= nil and type(settings.style) == "table" and settings.style.bar_colors_enabled and tostring(cfg.bar_style_mode or "shared") == "shared" then
-        return settings.style.mp_bar_color or settings.style.mp_fill_color or DEFAULT_MP_COLOR
+        return settings.style.mp_fill_color or settings.style.mp_bar_color or DEFAULT_MP_COLOR
     end
     return DEFAULT_MP_COLOR
 end
@@ -1020,6 +1689,12 @@ local function getNameColor(cfg, member, state)
     end
     if state.dead then
         return DEAD_TEXT_COLOR
+    end
+    if cfg.use_class_name_colors == true then
+        local classColor = getClassColor(member.class_name)
+        if classColor ~= nil then
+            return classColor
+        end
     end
     if cfg.use_role_name_colors ~= false and TEAM_ROLE_COLORS[member.role_key or ""] ~= nil then
         return TEAM_ROLE_COLORS[member.role_key]
@@ -1118,7 +1793,19 @@ local function updateGroupHeaders(cfg, members)
 end
 
 local function renderMember(frame, settings, cfg, member, refreshMetadata)
-    local hp, maxHp, mp, maxMp = safeUnitHealth(member.unit)
+    member = refreshMemberSnapshot(member, refreshMetadata)
+    local resolvedUnitId = member.unit_id or frame.__raid_unit_id
+    local hp, maxHp, mp, maxMp = safeUnitHealth(member.unit, resolvedUnitId)
+    hp, maxHp = mergeResourceValues(hp, maxHp, frame.__nr_last_hp, frame.__nr_last_max_hp)
+    mp, maxMp = mergeResourceValues(mp, maxMp, frame.__nr_last_mp, frame.__nr_last_max_mp)
+    if hasUsableVitals(hp, maxHp) then
+        frame.__nr_last_hp = hp
+        frame.__nr_last_max_hp = maxHp
+    end
+    if hasUsableVitals(mp, maxMp) then
+        frame.__nr_last_mp = mp
+        frame.__nr_last_max_mp = maxMp
+    end
     local offline = safeUnitOffline(member.unit)
     local modifier = frame.__nr_modifier
     if refreshMetadata or modifier == nil then
@@ -1134,11 +1821,54 @@ local function renderMember(frame, settings, cfg, member, refreshMetadata)
     end
 
     frame.__raid_unit = member.unit
-    frame.__raid_unit_id = member.unit_id
+    frame.__raid_unit_id = resolvedUnitId
+    frame.__raid_name = member.name
+    frame.__raid_member_index = member.index
+    frame.__raid_party = math.floor(((tonumber(member.index) or 1) - 1) / GROUP_SIZE) + 1
+    frame.__raid_slot = ((tonumber(member.index) or 1) - 1) % GROUP_SIZE + 1
+    safeAssignWidgetField(frame, "target", member.unit)
+    safeAssignWidgetField(frame, "unit", member.unit)
+    safeAssignWidgetField(frame, "unitId", resolvedUnitId)
+    safeAssignWidgetField(frame, "index", member.index)
+    safeAssignWidgetField(frame, "memberIndex", member.index)
+    safeAssignWidgetField(frame, "party", frame.__raid_party)
+    safeAssignWidgetField(frame, "slot", frame.__raid_slot)
+    safeAssignWidgetField(frame.eventWindow, "target", member.unit)
+    safeAssignWidgetField(frame.eventWindow, "unit", member.unit)
+    safeAssignWidgetField(frame.eventWindow, "unitId", resolvedUnitId)
+    safeAssignWidgetField(frame.eventWindow, "index", member.index)
+    safeAssignWidgetField(frame.eventWindow, "memberIndex", member.index)
+    safeAssignWidgetField(frame.eventWindow, "party", frame.__raid_party)
+    safeAssignWidgetField(frame.eventWindow, "slot", frame.__raid_slot)
+    applyFrameTextures(frame, settings)
+    safeSetWidgetTarget(frame.popupOwner, member.unit, resolvedUnitId, member.name)
+    safeAssignWidgetField(frame.popupOwner, "target", member.unit)
+    safeAssignWidgetField(frame.popupOwner, "unit", member.unit)
+    safeAssignWidgetField(frame.popupOwner, "unitId", resolvedUnitId)
+    safeAssignWidgetField(frame.popupOwner, "index", member.index)
+    safeAssignWidgetField(frame.popupOwner, "memberIndex", member.index)
+    safeAssignWidgetField(frame.popupOwner, "party", frame.__raid_party)
+    safeAssignWidgetField(frame.popupOwner, "slot", frame.__raid_slot)
+    safeAssignWidgetField(frame.popupOwner ~= nil and frame.popupOwner.eventWindow or nil, "target", member.unit)
+    safeAssignWidgetField(frame.popupOwner ~= nil and frame.popupOwner.eventWindow or nil, "unit", member.unit)
+    safeAssignWidgetField(frame.popupOwner ~= nil and frame.popupOwner.eventWindow or nil, "unitId", resolvedUnitId)
+    safeAssignWidgetField(frame.popupOwner ~= nil and frame.popupOwner.eventWindow or nil, "index", member.index)
+    safeAssignWidgetField(frame.popupOwner ~= nil and frame.popupOwner.eventWindow or nil, "memberIndex", member.index)
+    safeAssignWidgetField(frame.popupOwner ~= nil and frame.popupOwner.eventWindow or nil, "party", frame.__raid_party)
+    safeAssignWidgetField(frame.popupOwner ~= nil and frame.popupOwner.eventWindow or nil, "slot", frame.__raid_slot)
+    frame.__nr_popup_owner = frame.popupOwner or frame
 
     local displayName = formatName(member.name, cfg.name_max_chars)
     if cfg.show_role_prefix ~= false then
         displayName = getRolePrefix(member.role_key) .. displayName
+    end
+    local metaText = ""
+    if cfg.show_class_icon ~= false then
+        metaText = getClassBadge(member.class_name)
+    end
+    local badgeText = ""
+    if cfg.show_role_badge == true then
+        badgeText = getRoleBadge(member.role_key, cfg.hide_dps_role_badge ~= false)
     end
 
     local targetMatch = member.unit_id ~= nil
@@ -1154,12 +1884,21 @@ local function renderMember(frame, settings, cfg, member, refreshMetadata)
     local showStatus = cfg.show_status_text ~= false and statusText ~= ""
     if refreshMetadata or frame.__nr_debuff_count == nil then
         frame.__nr_debuff_count = safeDebuffCount(member.unit)
+        frame.__nr_has_dispellable_debuff = hasDispellableDebuff(member.unit, frame.__nr_debuff_count)
     end
     local showDebuff = cfg.show_debuff_alert ~= false and (tonumber(frame.__nr_debuff_count) or 0) > 0
 
     updateCachedText(frame, "__nr_name", frame.nameLabel, displayName)
     updateCachedVisible(frame, "__nr_name_visible", frame.nameLabel, showName)
     updateCachedLabelColor(frame, "__nr_name_color", frame.nameLabel, nameColor)
+
+    updateCachedText(frame, "__nr_meta", frame.metaLabel, metaText)
+    updateCachedVisible(frame, "__nr_meta_visible", frame.metaLabel, trim(metaText) ~= "")
+    updateCachedLabelColor(frame, "__nr_meta_color", frame.metaLabel, nameColor)
+
+    updateCachedText(frame, "__nr_badge", frame.badgeLabel, badgeText)
+    updateCachedVisible(frame, "__nr_badge_visible", frame.badgeLabel, trim(badgeText) ~= "")
+    updateCachedLabelColor(frame, "__nr_badge_color", frame.badgeLabel, { 255, 230, 120, 255 })
 
     if showValue then
         updateCachedText(frame, "__nr_value", frame.valueLabel, getValueText(cfg.value_text_mode, hp, maxHp, "hp"))
@@ -1171,10 +1910,10 @@ local function renderMember(frame, settings, cfg, member, refreshMetadata)
     updateCachedVisible(frame, "__nr_status_visible", frame.statusLabel, showStatus)
     updateCachedLabelColor(frame, "__nr_status_color", frame.statusLabel, state.dead and DEAD_TEXT_COLOR or OFFLINE_TEXT_COLOR)
 
-    updateCachedBarColor(frame, "__nr_hp_color", frame.hpBar ~= nil and frame.hpBar.statusBar or nil, hpColor)
-    updateCachedBarValue(frame, "__nr_hp_range", "__nr_hp_value", frame.hpBar ~= nil and frame.hpBar.statusBar or nil, maxHp, hp)
-    updateCachedBarColor(frame, "__nr_mp_color", frame.mpBar ~= nil and frame.mpBar.statusBar or nil, mpColor)
-    updateCachedBarValue(frame, "__nr_mp_range", "__nr_mp_value", frame.mpBar ~= nil and frame.mpBar.statusBar or nil, maxMp, mp)
+    updateCachedBarColor(frame, "__nr_hp_color", frame.hpBar, hpColor)
+    updateCachedBarValue(frame, "__nr_hp_range", "__nr_hp_value", getBarValueTarget(frame.hpBar), maxHp, hp)
+    updateCachedBarColor(frame, "__nr_mp_color", frame.mpBar, mpColor)
+    updateCachedBarValue(frame, "__nr_mp_range", "__nr_mp_value", getBarValueTarget(frame.mpBar), maxMp, mp)
 
     updateCachedVisible(frame, "__nr_target_visible", frame.targetTint, cfg.show_target_highlight ~= false and targetMatch)
     if frame.targetTint ~= nil then
@@ -1189,12 +1928,15 @@ local function renderMember(frame, settings, cfg, member, refreshMetadata)
 
     updateCachedVisible(frame, "__nr_debuff_visible", frame.debuffBadge, showDebuff)
     if frame.debuffBadge ~= nil then
+        local debuffColor = (cfg.prefer_dispel_alert ~= false and frame.__nr_has_dispellable_debuff == true)
+            and { 255, 210, 72, 235 }
+            or DEBUFF_BADGE_COLOR
         safeSetColor(
             frame.debuffBadge,
-            DEBUFF_BADGE_COLOR[1] / 255,
-            DEBUFF_BADGE_COLOR[2] / 255,
-            DEBUFF_BADGE_COLOR[3] / 255,
-            DEBUFF_BADGE_COLOR[4] / 255
+            debuffColor[1] / 255,
+            debuffColor[2] / 255,
+            debuffColor[3] / 255,
+            debuffColor[4] / 255
         )
     end
 

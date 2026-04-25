@@ -1,4 +1,9 @@
 local api = require("api")
+local Core = api._NuziCore or require("nuzi-core/core")
+
+local Log = Core.Log
+local Runtime = Core.Runtime
+local Settings = Core.Settings
 
 local Shared = {}
 
@@ -6,20 +11,20 @@ Shared.CONSTANTS = {
     ADDON_ID = "nuzi-raid",
     LEGACY_ADDON_ID = "polar-raid",
     TITLE = "Nuzi Raid",
-    VERSION = "1.2.0",
+    VERSION = "2.0.0",
     BUTTON_ID = "polarRaidSettingsButton",
     WINDOW_ID = "polarRaidSettingsWindow",
     SETTINGS_FILE_PATH = "nuzi-raid/.data/settings.txt",
     LEGACY_SETTINGS_FILE_PATH = "polar-raid/settings.txt",
     LEGACY_LOCAL_SETTINGS_FILE_PATH = "nuzi-raid/settings.txt",
+    LEGACY_POLAR_UI_SETTINGS_PATH = "polar-ui/settings.txt",
     SETTINGS_BACKUP_INDEX_FILE_PATH = "nuzi-raid/.data/backups/index.txt",
     LEGACY_SETTINGS_BACKUP_INDEX_FILE_PATH = "nuzi-raid/backups/index.txt",
     SETTINGS_BACKUP_INDEX_FALLBACK_FILE_PATH = "nuzi-raid/.data/settings_backup_index.txt",
     LEGACY_SETTINGS_BACKUP_INDEX_FALLBACK_FILE_PATH = "nuzi-raid/settings_backup_index.txt",
     SETTINGS_BACKUP_DIR = "nuzi-raid/.data/backups",
     SETTINGS_BACKUP_FILE_PATH = "nuzi-raid/.data/settings_backup.txt",
-    LEGACY_SETTINGS_BACKUP_FILE_PATH = "nuzi-raid/settings_backup.txt",
-    LEGACY_POLAR_UI_SETTINGS_PATH = "polar-ui/settings.txt"
+    LEGACY_SETTINGS_BACKUP_FILE_PATH = "nuzi-raid/settings_backup.txt"
 }
 
 Shared.DEFAULT_SETTINGS = {
@@ -39,10 +44,10 @@ Shared.DEFAULT_SETTINGS = {
     },
     style = {
         hp_texture_mode = "stock",
-        bar_colors_enabled = false,
-        hp_fill_color = { 223, 69, 69, 255 },
-        hp_bar_color = { 223, 69, 69, 255 },
-        hp_after_color = { 223, 69, 69, 255 },
+        bar_colors_enabled = true,
+        hp_fill_color = { 44, 168, 84, 255 },
+        hp_bar_color = { 44, 168, 84, 255 },
+        hp_after_color = { 44, 168, 84, 255 },
         mp_fill_color = { 86, 198, 239, 255 },
         mp_bar_color = { 86, 198, 239, 255 },
         mp_after_color = { 86, 198, 239, 255 }
@@ -54,29 +59,29 @@ Shared.DEFAULT_SETTINGS = {
         x = 600,
         y = 250,
         alpha_pct = 100,
-        width = 80,
-        hp_height = 16,
+        width = 100,
+        hp_height = 30,
         mp_height = 0,
-        name_font_size = 11,
+        name_font_size = 14,
         show_name = true,
         name_max_chars = 0,
         name_padding_left = 2,
         name_offset_x = 0,
         name_offset_y = 0,
-        show_role_prefix = true,
-        show_class_icon = true,
+        show_role_prefix = false,
+        show_class_icon = false,
         icon_size = 12,
         icon_gap = 2,
         icon_offset_x = 0,
         icon_offset_y = 0,
         show_role_badge = false,
         hide_dps_role_badge = true,
-        use_team_role_colors = true,
+        use_team_role_colors = false,
         use_role_name_colors = true,
         use_class_name_colors = false,
-        show_value_text = false,
-        value_text_mode = "percent",
-        value_font_size = 10,
+        show_value_text = true,
+        value_text_mode = "missing",
+        value_font_size = 12,
         value_offset_x = 0,
         value_offset_y = 0,
         show_status_text = true,
@@ -88,107 +93,52 @@ Shared.DEFAULT_SETTINGS = {
         show_debuff_alert = true,
         prefer_dispel_alert = true,
         show_target_highlight = true,
-        show_group_headers = true,
+        show_group_headers = false,
         group_header_font_size = 11,
-        right_click_fallback_menu = true,
         bar_style_mode = "shared",
         gap_x = 2,
         gap_y = 2,
         grid_columns = 8,
-        bg_enabled = false,
-        bg_alpha_pct = 80
+        bg_enabled = true,
+        bg_alpha_pct = 100
     }
+}
+
+Shared.CONSTANTS.DEFAULT_SETTINGS = Shared.DEFAULT_SETTINGS
+Shared.CONSTANTS.LEGACY_SETTINGS_FILE_PATHS = {
+    Shared.CONSTANTS.LEGACY_LOCAL_SETTINGS_FILE_PATH,
+    Shared.CONSTANTS.LEGACY_SETTINGS_FILE_PATH
 }
 
 Shared.state = {
     settings = nil
 }
 
-local function deepCopy(value, visited)
+local logger = Log.Create(Shared.CONSTANTS.TITLE)
+
+local function tableHasEntries(value)
     if type(value) ~= "table" then
-        return value
+        return false
     end
-    visited = visited or {}
-    if visited[value] ~= nil then
-        return visited[value]
+    for _ in pairs(value) do
+        return true
     end
-    local out = {}
-    visited[value] = out
-    for k, v in pairs(value) do
-        out[deepCopy(k, visited)] = deepCopy(v, visited)
-    end
-    return out
-end
-
-local function mergeInto(dst, src)
-    if type(dst) ~= "table" or type(src) ~= "table" then
-        return
-    end
-    for key, value in pairs(src) do
-        if type(value) == "table" then
-            if type(dst[key]) ~= "table" then
-                dst[key] = {}
-            end
-            mergeInto(dst[key], value)
-        else
-            dst[key] = value
-        end
-    end
-end
-
-local function ensureDefaults(dst, defaults)
-    for key, value in pairs(defaults) do
-        if type(value) == "table" then
-            if type(dst[key]) ~= "table" then
-                dst[key] = deepCopy(value)
-            else
-                ensureDefaults(dst[key], value)
-            end
-        elseif dst[key] == nil then
-            dst[key] = value
-        end
-    end
-end
-
-local function readTableFile(path)
-    if api.File == nil or api.File.Read == nil then
-        return nil
-    end
-    local ok, res = pcall(function()
-        return api.File:Read(path)
-    end)
-    if ok and type(res) == "table" then
-        return res
-    end
-    return nil
-end
-
-local function writeTableFile(path, tbl)
-    if api.File == nil or api.File.Write == nil or type(tbl) ~= "table" then
-        return false, "api.File:Write unavailable"
-    end
-    local ok, err = pcall(function()
-        api.File:Write(path, tbl)
-    end)
-    if not ok then
-        return false, tostring(err)
-    end
-    return true, ""
+    return false
 end
 
 local function buildMigratedSettings(legacy)
-    local out = deepCopy(Shared.DEFAULT_SETTINGS)
+    local out = Runtime.DeepCopy(Shared.DEFAULT_SETTINGS)
     if type(legacy) ~= "table" then
         return out, false
     end
     if type(legacy.raidframes) == "table" then
-        mergeInto(out.raidframes, legacy.raidframes)
+        Runtime.MergeInto(out.raidframes, legacy.raidframes)
     end
     if type(legacy.style) == "table" then
-        mergeInto(out.style, legacy.style)
+        Runtime.MergeInto(out.style, legacy.style)
     end
     if type(legacy.role) == "table" then
-        mergeInto(out.role, legacy.role)
+        Runtime.MergeInto(out.role, legacy.role)
     end
     if legacy.drag_requires_shift ~= nil then
         out.drag_requires_shift = legacy.drag_requires_shift and true or false
@@ -197,21 +147,152 @@ local function buildMigratedSettings(legacy)
     return out, true
 end
 
+local function normalizeSettings(settings)
+    if type(settings) ~= "table" then
+        return false
+    end
+
+    local changed = false
+
+    if Runtime.ApplyDefaults(settings, Shared.DEFAULT_SETTINGS) then
+        changed = true
+    end
+
+    if type(settings.raidframes) ~= "table" then
+        settings.raidframes = Runtime.DeepCopy(Shared.DEFAULT_SETTINGS.raidframes)
+        changed = true
+    end
+    if type(settings.style) ~= "table" then
+        settings.style = Runtime.DeepCopy(Shared.DEFAULT_SETTINGS.style)
+        changed = true
+    end
+    if type(settings.role) ~= "table" then
+        settings.role = Runtime.DeepCopy(Shared.DEFAULT_SETTINGS.role)
+        changed = true
+    end
+
+    local dragRequiresShift = settings.drag_requires_shift and true or false
+    if settings.drag_requires_shift ~= dragRequiresShift then
+        settings.drag_requires_shift = dragRequiresShift
+        changed = true
+    end
+
+    if type(settings.raidframes) == "table" and settings.raidframes.right_click_fallback_menu ~= nil then
+        settings.raidframes.right_click_fallback_menu = nil
+        changed = true
+    end
+
+    return changed
+end
+
+local function readApiSettings(addonId)
+    local normalizedId = tostring(addonId or "")
+    if normalizedId == "" then
+        return nil
+    end
+
+    if type(api) == "table" and type(api.GetSettings) == "function" then
+        local ok, candidate = pcall(api.GetSettings, normalizedId)
+        if ok and type(candidate) == "table" and tableHasEntries(candidate) then
+            return candidate
+        end
+    end
+
+    if type(api) == "table" and type(api.File) == "table" and type(api.File.GetSettings) == "function" then
+        local ok, candidate = pcall(function()
+            return api.File:GetSettings(normalizedId)
+        end)
+        if ok and type(candidate) == "table" and tableHasEntries(candidate) then
+            return candidate
+        end
+    end
+
+    return nil
+end
+
+local store = Settings.CreateAddonStore(Shared.CONSTANTS, {
+    defaults = Runtime.DeepCopy(Shared.DEFAULT_SETTINGS),
+    read_mode = "serialized_then_flat",
+    write_mode = "serialized",
+    read_raw_text_fallback = true,
+    fallback_paths = Shared.CONSTANTS.LEGACY_SETTINGS_FILE_PATHS,
+    skip_empty_default_tables = true,
+    use_api_settings = false,
+    bootstrap_if_missing = false,
+    log_name = Shared.CONSTANTS.TITLE,
+    normalize = function(settings)
+        return normalizeSettings(settings)
+    end,
+    backups = {
+        read_mode = "serialized_then_flat",
+        write_mode = "serialized",
+        read_raw_text_fallback = true,
+        backup_dir = Shared.CONSTANTS.SETTINGS_BACKUP_DIR,
+        backup_prefix = "settings",
+        index_file_path = Shared.CONSTANTS.SETTINGS_BACKUP_INDEX_FILE_PATH,
+        index_fallback_file_path = Shared.CONSTANTS.SETTINGS_BACKUP_INDEX_FALLBACK_FILE_PATH,
+        legacy_index_paths = {
+            Shared.CONSTANTS.LEGACY_SETTINGS_BACKUP_INDEX_FILE_PATH,
+            Shared.CONSTANTS.LEGACY_SETTINGS_BACKUP_INDEX_FALLBACK_FILE_PATH
+        },
+        latest_backup_file_path = Shared.CONSTANTS.SETTINGS_BACKUP_FILE_PATH,
+        legacy_latest_paths = {
+            Shared.CONSTANTS.LEGACY_SETTINGS_BACKUP_FILE_PATH
+        },
+        max_backups = 30
+    }
+})
+
+Shared.store = store
+
+local function saveLoadedSettings(settings, sourceLabel)
+    store.settings = settings
+    Shared.state.settings = settings
+    local ok = store:Save()
+    if not ok then
+        logger:Err("Failed to save migrated settings from " .. tostring(sourceLabel))
+    end
+    return settings
+end
+
+local function tryLoadPolarUiMigration()
+    local parsed = nil
+    parsed = Settings.ReadFlexibleTable(Shared.CONSTANTS.LEGACY_POLAR_UI_SETTINGS_PATH, {
+        mode = "serialized_then_flat",
+        raw_text_fallback = true
+    })
+    if type(parsed) ~= "table" or not tableHasEntries(parsed) then
+        return nil
+    end
+
+    local migrated, didMigrate = buildMigratedSettings(parsed)
+    if not didMigrate then
+        return nil
+    end
+    logger:Info("Migrating settings from polar-ui/settings.txt")
+    return migrated
+end
+
+local function tryLoadApiSeed()
+    local current = readApiSettings(Shared.CONSTANTS.ADDON_ID)
+    if type(current) == "table" then
+        logger:Info("Seeding settings from api.GetSettings(" .. Shared.CONSTANTS.ADDON_ID .. ")")
+        return current
+    end
+
+    local legacy = readApiSettings(Shared.CONSTANTS.LEGACY_ADDON_ID)
+    if type(legacy) == "table" then
+        logger:Info("Seeding settings from api.GetSettings(" .. Shared.CONSTANTS.LEGACY_ADDON_ID .. ")")
+        return legacy
+    end
+
+    return nil
+end
+
 function Shared.EnsureSettings()
-    if type(Shared.state.settings) ~= "table" then
-        Shared.state.settings = {}
-    end
-    ensureDefaults(Shared.state.settings, Shared.DEFAULT_SETTINGS)
-    if type(Shared.state.settings.raidframes) ~= "table" then
-        Shared.state.settings.raidframes = deepCopy(Shared.DEFAULT_SETTINGS.raidframes)
-    end
-    if type(Shared.state.settings.style) ~= "table" then
-        Shared.state.settings.style = deepCopy(Shared.DEFAULT_SETTINGS.style)
-    end
-    if type(Shared.state.settings.role) ~= "table" then
-        Shared.state.settings.role = deepCopy(Shared.DEFAULT_SETTINGS.role)
-    end
-    return Shared.state.settings
+    local settings = store:Ensure()
+    Shared.state.settings = settings
+    return settings
 end
 
 function Shared.GetSettings()
@@ -219,146 +300,59 @@ function Shared.GetSettings()
 end
 
 function Shared.LoadSettings()
-    local loaded = readTableFile(Shared.CONSTANTS.SETTINGS_FILE_PATH)
-    local migrated = false
-    if type(loaded) == "table" then
-        Shared.state.settings = loaded
-    else
-        local legacyLoaded = readTableFile(Shared.CONSTANTS.LEGACY_LOCAL_SETTINGS_FILE_PATH)
-        if type(legacyLoaded) ~= "table" then
-            legacyLoaded = readTableFile(Shared.CONSTANTS.LEGACY_SETTINGS_FILE_PATH)
-        end
-        if type(legacyLoaded) == "table" then
-            Shared.state.settings = legacyLoaded
-            migrated = true
-        else
-            local legacy = readTableFile(Shared.CONSTANTS.LEGACY_POLAR_UI_SETTINGS_PATH)
-            local migratedSettings, didMigrate = buildMigratedSettings(legacy)
-            if didMigrate then
-                Shared.state.settings = migratedSettings
-                migrated = true
-            elseif api.GetSettings ~= nil then
-                Shared.state.settings = api.GetSettings(Shared.CONSTANTS.ADDON_ID) or {}
-                if type(Shared.state.settings) ~= "table" or next(Shared.state.settings) == nil then
-                    Shared.state.settings = api.GetSettings(Shared.CONSTANTS.LEGACY_ADDON_ID) or {}
-                end
-            else
-                Shared.state.settings = {}
-            end
-        end
+    local settings, meta = store:Load()
+    Shared.state.settings = settings
+
+    local hasLoadedFile = type(meta) == "table" and type(meta.source_kind) == "string" and meta.source_kind ~= "none"
+    if hasLoadedFile or (type(meta) == "table" and meta.has_primary) then
+        return settings
     end
-    Shared.EnsureSettings()
-    if migrated then
-        Shared.SaveSettings()
+
+    local polarUiSettings = tryLoadPolarUiMigration()
+    if type(polarUiSettings) == "table" then
+        return saveLoadedSettings(polarUiSettings, Shared.CONSTANTS.LEGACY_POLAR_UI_SETTINGS_PATH)
     end
-    return Shared.state.settings
+
+    local apiSeed = tryLoadApiSeed()
+    if type(apiSeed) == "table" then
+        normalizeSettings(apiSeed)
+        return saveLoadedSettings(apiSeed, "api settings")
+    end
+
+    settings = Shared.EnsureSettings()
+    store:Save()
+    return settings
 end
 
 function Shared.ResetRaidSettings()
-    Shared.EnsureSettings().raidframes = deepCopy(Shared.DEFAULT_SETTINGS.raidframes)
+    Shared.EnsureSettings().raidframes = Runtime.DeepCopy(Shared.DEFAULT_SETTINGS.raidframes)
 end
 
 function Shared.ResetStyleSettings()
-    Shared.EnsureSettings().style = deepCopy(Shared.DEFAULT_SETTINGS.style)
+    Shared.EnsureSettings().style = Runtime.DeepCopy(Shared.DEFAULT_SETTINGS.style)
 end
 
 function Shared.ResetAllSettings()
-    Shared.state.settings = deepCopy(Shared.DEFAULT_SETTINGS)
+    Shared.state.settings = Runtime.DeepCopy(Shared.DEFAULT_SETTINGS)
+    store.settings = Shared.state.settings
 end
 
 function Shared.SaveSettings()
     local settings = Shared.EnsureSettings()
-    if api.SaveSettings ~= nil then
-        pcall(function()
-            api.SaveSettings()
-        end)
-    end
-    return writeTableFile(Shared.CONSTANTS.SETTINGS_FILE_PATH, settings)
+    store.settings = settings
+    return store:Save()
 end
 
 function Shared.SaveSettingsBackup()
-    local settings = Shared.EnsureSettings()
-    local ts = nil
-    pcall(function()
-        if api.Time ~= nil and api.Time.GetLocalTime ~= nil then
-            ts = api.Time:GetLocalTime()
-        end
-    end)
-    if ts == nil then
-        ts = tostring(math.random(1000000000, 9999999999))
-    end
-    ts = tostring(ts)
-
-    local backupPath = string.format("%s/settings_%s.txt", Shared.CONSTANTS.SETTINGS_BACKUP_DIR, ts)
-    local ok, err = writeTableFile(backupPath, settings)
-    if not ok then
-        backupPath = string.format("nuzi-raid/.data/settings_backup_%s.txt", ts)
-        ok, err = writeTableFile(backupPath, settings)
-        if not ok then
-            return false, err
-        end
-    end
-
-    local idx = readTableFile(Shared.CONSTANTS.SETTINGS_BACKUP_INDEX_FILE_PATH)
-    if type(idx) ~= "table" then
-        idx = readTableFile(Shared.CONSTANTS.SETTINGS_BACKUP_INDEX_FALLBACK_FILE_PATH)
-    end
-    if type(idx) ~= "table" then
-        idx = readTableFile(Shared.CONSTANTS.LEGACY_SETTINGS_BACKUP_INDEX_FILE_PATH)
-    end
-    if type(idx) ~= "table" then
-        idx = readTableFile(Shared.CONSTANTS.LEGACY_SETTINGS_BACKUP_INDEX_FALLBACK_FILE_PATH)
-    end
-    if type(idx) ~= "table" then
-        idx = { version = 1, backups = {} }
-    end
-    if type(idx.backups) ~= "table" then
-        idx.backups = {}
-    end
-    table.insert(idx.backups, 1, { path = backupPath, timestamp = ts })
-
-    local savedIndex, saveErr = writeTableFile(Shared.CONSTANTS.SETTINGS_BACKUP_INDEX_FILE_PATH, idx)
-    if not savedIndex then
-        savedIndex, saveErr = writeTableFile(Shared.CONSTANTS.SETTINGS_BACKUP_INDEX_FALLBACK_FILE_PATH, idx)
-        if not savedIndex then
-            return false, saveErr
-        end
-    end
-    return true, backupPath
+    return store:SaveBackup()
 end
 
 function Shared.ImportLatestBackup()
-    local idx = readTableFile(Shared.CONSTANTS.SETTINGS_BACKUP_INDEX_FILE_PATH)
-    if type(idx) ~= "table" then
-        idx = readTableFile(Shared.CONSTANTS.SETTINGS_BACKUP_INDEX_FALLBACK_FILE_PATH)
+    local ok, detail = store:ImportLatestBackup()
+    if ok then
+        Shared.state.settings = store.settings
     end
-    if type(idx) ~= "table" then
-        idx = readTableFile(Shared.CONSTANTS.LEGACY_SETTINGS_BACKUP_INDEX_FILE_PATH)
-    end
-    if type(idx) ~= "table" then
-        idx = readTableFile(Shared.CONSTANTS.LEGACY_SETTINGS_BACKUP_INDEX_FALLBACK_FILE_PATH)
-    end
-    if type(idx) ~= "table" or type(idx.backups) ~= "table" or idx.backups[1] == nil then
-        return false, "No backup found"
-    end
-
-    local backup = idx.backups[1]
-    local path = type(backup) == "table" and backup.path or nil
-    if type(path) ~= "string" or path == "" then
-        return false, "Backup path missing"
-    end
-
-    local loaded = readTableFile(path)
-    if type(loaded) ~= "table" then
-        loaded = readTableFile(Shared.CONSTANTS.LEGACY_SETTINGS_BACKUP_FILE_PATH)
-    end
-    if type(loaded) ~= "table" then
-        return false, "Failed to read backup"
-    end
-
-    Shared.state.settings = loaded
-    Shared.EnsureSettings()
-    return Shared.SaveSettings()
+    return ok, detail
 end
 
 return Shared

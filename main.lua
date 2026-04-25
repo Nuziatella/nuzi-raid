@@ -1,29 +1,58 @@
 local api = require("api")
+local Core = api._NuziCore or require("nuzi-core/core")
 
-local function loadModule(name)
-    local ok, mod = pcall(require, "nuzi-raid/" .. name)
-    if ok then
-        return mod
-    end
-    ok, mod = pcall(require, "nuzi-raid." .. name)
-    if ok then
-        return mod
-    end
-    return nil
-end
-
-local Shared = loadModule("shared")
-local RaidFrames = loadModule("raidframes")
-local SettingsUi = loadModule("settings_ui")
-local Runtime = loadModule("runtime")
-local Compat = loadModule("compat")
+local Events = Core.Events
+local Log = Core.Log
+local Require = Core.Require
+local RuntimeMath = Core.Runtime
 
 local addon = {
     name = "Nuzi Raid",
     author = "Nuzi",
-    version = "1.2.0",
+    version = "2.0.0",
     desc = "Custom raid frames"
 }
+
+local logger = Log.Create(addon.name)
+local events = Events.Create({
+    logger = logger
+})
+local teamEvents = Events.CreateEventWindow({
+    id = "nuziRaidTeamEvents",
+    logger = logger
+})
+
+local moduleErrors = {}
+
+local function appendModuleErrors(name, errors)
+    if type(errors) ~= "table" or #errors == 0 then
+        moduleErrors[#moduleErrors + 1] = string.format("%s: unknown load failure", tostring(name))
+        return
+    end
+    moduleErrors[#moduleErrors + 1] = string.format(
+        "%s: %s",
+        tostring(name),
+        Require.DescribeErrors(errors)
+    )
+end
+
+local modules, failures = Require.AddonSet("nuzi-raid", {
+    "shared",
+    "raidframes",
+    "settings_ui",
+    "runtime",
+    "compat"
+})
+
+for name, failure in pairs(failures or {}) do
+    appendModuleErrors(name, failure.errors)
+end
+
+local Shared = modules.shared
+local RaidFrames = modules.raidframes
+local SettingsUi = modules.settings_ui
+local Runtime = modules.runtime
+local Compat = modules.compat
 
 local vitalsElapsedMs = 0
 local metadataElapsedMs = 0
@@ -37,20 +66,23 @@ local UPDATE_INTERVALS = {
     force_roster_ms = 2000
 }
 
-local function logInfo(message)
-    if api.Log ~= nil and api.Log.Info ~= nil then
-        api.Log:Info("[Nuzi Raid] " .. tostring(message or ""))
-    end
-end
-
 local function modulesReady()
     return Shared ~= nil and RaidFrames ~= nil and SettingsUi ~= nil and Runtime ~= nil and Compat ~= nil
+end
+
+local function logModuleErrors()
+    if #moduleErrors == 0 then
+        return
+    end
+    for _, detail in ipairs(moduleErrors) do
+        logger:Err("Module load error: " .. tostring(detail))
+    end
 end
 
 local function logRuntimeSummary()
     local runtime = Compat.Get()
     local caps = runtime.caps or {}
-    logInfo(string.format(
+    logger:Info(string.format(
         "Runtime raidframes=%s sliders=%s raid_manager=%s target_frame=%s",
         caps.raidframes_supported and "yes" or "no",
         caps.slider_factory and "yes" or "no",
@@ -58,12 +90,10 @@ local function logRuntimeSummary()
         caps.stock_target_frame and "yes" or "no"
     ))
     for _, warning in ipairs(runtime.warnings or {}) do
-        logInfo(warning)
+        logger:Info(warning)
     end
     for _, blocker in ipairs(runtime.blockers or {}) do
-        if api.Log ~= nil and api.Log.Err ~= nil then
-            api.Log:Err("[Nuzi Raid] " .. tostring(blocker))
-        end
+        logger:Err(tostring(blocker))
     end
 end
 
@@ -118,13 +148,7 @@ local function buildActions()
 end
 
 local function onUpdate(dt)
-    local delta = tonumber(dt) or 0
-    if delta < 0 then
-        delta = 0
-    end
-    if delta < 5 then
-        delta = delta * 1000
-    end
+    local delta = RuntimeMath.NormalizeDeltaMs(dt)
     vitalsElapsedMs = vitalsElapsedMs + delta
     metadataElapsedMs = metadataElapsedMs + delta
     rosterElapsedMs = rosterElapsedMs + delta
@@ -152,6 +176,7 @@ local function onUpdate(dt)
     if forceRoster then
         rosterForceElapsedMs = 0
     end
+
     local ok, err = pcall(function()
         RaidFrames.OnUpdate(Shared.GetSettings(), {
             update_vitals = updateVitals,
@@ -161,8 +186,8 @@ local function onUpdate(dt)
             update_target = updateTarget
         })
     end)
-    if not ok and api.Log ~= nil and api.Log.Err ~= nil then
-        api.Log:Err("[Nuzi Raid] RaidFrames.OnUpdate failed: " .. tostring(err))
+    if not ok then
+        logger:Err("RaidFrames.OnUpdate failed: " .. tostring(err))
     end
 end
 
@@ -180,6 +205,34 @@ local function onUiReloaded()
     applyAll()
 end
 
+local function refreshRaidFrames(flags)
+    if Shared == nil or RaidFrames == nil then
+        return
+    end
+    local ok, err = pcall(function()
+        RaidFrames.OnUpdate(Shared.GetSettings(), flags or {
+            update_vitals = true,
+            update_metadata = false,
+            update_roster = false,
+            force_roster = false,
+            update_target = false
+        })
+    end)
+    if not ok then
+        logger:Err("Event-driven refresh failed: " .. tostring(err))
+    end
+end
+
+local function onTeamRosterChanged()
+    refreshRaidFrames({
+        update_vitals = true,
+        update_metadata = true,
+        update_roster = true,
+        force_roster = true,
+        update_target = true
+    })
+end
+
 local function onChatMessage(_, _, _, senderName, message)
     local raw = tostring(message or "")
     local playerName = Runtime.GetPlayerName()
@@ -193,11 +246,11 @@ end
 
 local function onLoad()
     if not modulesReady() then
-        if api.Log ~= nil and api.Log.Err ~= nil then
-            api.Log:Err("[Nuzi Raid] Failed to load one or more modules")
-        end
+        logModuleErrors()
+        logger:Err("Failed to load one or more modules")
         return
     end
+
     Shared.LoadSettings()
     Compat.Probe(true)
     logRuntimeSummary()
@@ -205,22 +258,20 @@ local function onLoad()
     RaidFrames.SetEnabled(Shared.GetSettings().enabled)
     SettingsUi.Init(buildActions())
     applyAll()
-    api.On("UPDATE", onUpdate)
-    api.On("UI_RELOADED", onUiReloaded)
-    api.On("CHAT_MESSAGE", onChatMessage)
-    pcall(function()
-        api.On("COMMUNITY_CHAT_MESSAGE", onChatMessage)
-    end)
-    logInfo("Loaded v" .. tostring(addon.version) .. ". Use the PR button for settings.")
+
+    events:On("UPDATE", onUpdate)
+    events:On("UI_RELOADED", onUiReloaded)
+    events:On("CHAT_MESSAGE", onChatMessage)
+    events:OptionalOn("TEAM_MEMBERS_CHANGED", onTeamRosterChanged)
+    teamEvents:OptionalOn("TEAM_MEMBER_DISCONNECTED", onTeamRosterChanged)
+    teamEvents:OptionalOn("TEAM_ROLE_CHANGED", onTeamRosterChanged)
+
+    logger:Info("Loaded v" .. tostring(addon.version) .. ". Use the NR button for settings.")
 end
 
 local function onUnload()
-    api.On("UPDATE", function() end)
-    api.On("UI_RELOADED", function() end)
-    api.On("CHAT_MESSAGE", function() end)
-    pcall(function()
-        api.On("COMMUNITY_CHAT_MESSAGE", function() end)
-    end)
+    events:ClearAll()
+    teamEvents:ClearAll()
     if RaidFrames ~= nil then
         RaidFrames.Unload()
     end
