@@ -19,6 +19,7 @@ local ActivatePopupMenuRef = type(ActivatePopupMenu) == "function" and ActivateP
 local CreateUnitFrameRef = type(CreateUnitFrame) == "function" and CreateUnitFrame or (globals ~= nil and globals.CreateUnitFrame or nil)
 local StatusBarStyleRef = type(STATUSBAR_STYLE) == "table" and STATUSBAR_STYLE or (globals ~= nil and globals.STATUSBAR_STYLE or nil)
 local TexturePathRef = type(TEXTURE_PATH) == "table" and TEXTURE_PATH or (globals ~= nil and globals.TEXTURE_PATH or nil)
+local WIconRef = type(W_ICON) == "table" and W_ICON or (globals ~= nil and globals.W_ICON or nil)
 
 local RaidFrames = {
     container = nil,
@@ -147,6 +148,7 @@ local safeUnitId = UnitHelpers.SafeUnitId
 local safeUnitHealth = UnitHelpers.SafeUnitHealth
 local safeUnitDistance = UnitHelpers.SafeUnitDistance
 local safeUnitOffline = UnitHelpers.SafeUnitOffline
+local safeUnitTeamAuthority = UnitHelpers.SafeUnitTeamAuthority
 local safeDebuffCount = UnitHelpers.SafeDebuffCount
 local hasDispellableDebuff = UnitHelpers.HasDispellableDebuff
 
@@ -613,6 +615,72 @@ local function createRaidBar(frameId, parent)
     return bar
 end
 
+local function createLeaderMark(frameId, parent)
+    local mark = nil
+    if WIconRef ~= nil and WIconRef.CreateLeaderMark ~= nil then
+        pcall(function()
+            mark = WIconRef.CreateLeaderMark(frameId .. ".leader", parent)
+        end)
+    end
+    if mark ~= nil then
+        safeShow(mark, false)
+        safeClickable(mark, false)
+        safeClickable(mark.bg, false)
+        return mark
+    end
+
+    local label = api.Interface:CreateWidget("label", frameId .. ".leader", parent)
+    label.__nr_text_leader_mark = true
+    pcall(function()
+        label:Show(false)
+        label:SetText("L")
+        if label.SetAutoResize ~= nil then
+            label:SetAutoResize(false)
+        end
+        if label.style ~= nil then
+            label.style:SetColor(1, 0.9, 0.35, 1)
+            if label.style.SetAlign ~= nil and ALIGN_REF ~= nil and ALIGN_REF.CENTER ~= nil then
+                label.style:SetAlign(ALIGN_REF.CENTER)
+            end
+            if label.style.SetShadow ~= nil then
+                label.style:SetShadow(true)
+            end
+        end
+    end)
+    return label
+end
+
+local function applyLeaderMarkSize(mark, size)
+    if mark == nil then
+        return
+    end
+    local markSize = clamp(size, 6, 32, 11)
+    safeSetExtent(mark, markSize, markSize)
+    if mark.bg ~= nil then
+        safeSetExtent(mark.bg, markSize, markSize)
+    end
+    if mark.__nr_text_leader_mark == true then
+        safeSetFontSize(mark, markSize)
+    end
+end
+
+local function updateLeaderMark(frame, cfg, authority)
+    if frame == nil or frame.leaderMark == nil then
+        return
+    end
+    local show = cfg.show_leader_badge ~= false and trim(authority) == "leader"
+    if show and frame.leaderMark.SetMark ~= nil then
+        pcall(function()
+            frame.leaderMark:SetMark(authority, false)
+        end)
+    elseif show and frame.leaderMark.SetText ~= nil then
+        pcall(function()
+            frame.leaderMark:SetText("L")
+        end)
+    end
+    updateCachedVisible(frame, "__nr_leader_visible", frame.leaderMark, show)
+end
+
 local function anchorPopupToCursor(popup)
     if popup == nil then
         return false
@@ -947,6 +1015,8 @@ local function createFrame(index)
     end)
     frame.metaLabel = metaLabel
 
+    frame.leaderMark = createLeaderMark(frameId, frame)
+
     local badgeLabel = api.Interface:CreateWidget("label", frameId .. ".badge", frame)
     pcall(function()
         badgeLabel:Show(true)
@@ -1030,6 +1100,7 @@ local function applyFrameLayout(frame, cfg)
     local valueOffsetY = clamp(cfg.value_offset_y, -40, 40, 0)
     local iconSize = clamp(cfg.icon_size, 8, 24, 12)
     local iconGap = clamp(cfg.icon_gap, 0, 24, 2)
+    local leaderSize = clamp(cfg.leader_badge_size, 6, 32, 11)
     local iconOffsetX = clamp(cfg.icon_offset_x, -120, 120, 0)
     local iconOffsetY = clamp(cfg.icon_offset_y, -40, 40, 0)
     local classOffsetX = clamp(cfg.class_offset_x, -120, 120, iconOffsetX)
@@ -1042,6 +1113,7 @@ local function applyFrameLayout(frame, cfg)
     local debuffOffsetX = clamp(cfg.debuff_offset_x, -120, 120, 0)
     local debuffOffsetY = clamp(cfg.debuff_offset_y, -40, 40, 0)
     local classReserve = cfg.show_class_icon ~= false and (iconSize + iconGap) or 0
+    local leaderReserve = cfg.show_leader_badge ~= false and (leaderSize + iconGap) or 0
 
     local layoutKey = table.concat({
         tostring(width),
@@ -1056,6 +1128,7 @@ local function applyFrameLayout(frame, cfg)
         tostring(valueOffsetY),
         tostring(iconSize),
         tostring(iconGap),
+        tostring(leaderSize),
         tostring(iconOffsetX),
         tostring(iconOffsetY),
         tostring(classOffsetX),
@@ -1067,7 +1140,8 @@ local function applyFrameLayout(frame, cfg)
         tostring(debuffSize),
         tostring(debuffOffsetX),
         tostring(debuffOffsetY),
-        tostring(cfg.show_class_icon ~= false)
+        tostring(cfg.show_class_icon ~= false),
+        tostring(cfg.show_leader_badge ~= false)
     }, "|")
     if frame.__nr_layout_key == layoutKey then
         return
@@ -1134,7 +1208,7 @@ local function applyFrameLayout(frame, cfg)
     if frame.nameLabel ~= nil then
         safeSetFontSize(frame.nameLabel, nameFontSize)
         safeSetExtent(frame.nameLabel, math.max(24, width - 24), hpHeight)
-        safeAnchor(frame.nameLabel, "LEFT", frame, "LEFT", namePad + nameOffsetX + classReserve, nameOffsetY)
+        safeAnchor(frame.nameLabel, "LEFT", frame, "LEFT", namePad + nameOffsetX + classReserve + leaderReserve, nameOffsetY)
         safeRaise(frame.nameLabel)
     end
 
@@ -1143,6 +1217,12 @@ local function applyFrameLayout(frame, cfg)
         safeSetExtent(frame.metaLabel, math.max(18, iconSize * 3), hpHeight)
         safeAnchor(frame.metaLabel, "LEFT", frame, "LEFT", namePad + classOffsetX, classOffsetY)
         safeRaise(frame.metaLabel)
+    end
+
+    if frame.leaderMark ~= nil then
+        applyLeaderMarkSize(frame.leaderMark, leaderSize)
+        safeAnchor(frame.leaderMark, "LEFT", frame, "LEFT", namePad + nameOffsetX + classReserve, nameOffsetY)
+        safeRaise(frame.leaderMark)
     end
 
     if frame.valueLabel ~= nil then
@@ -1304,6 +1384,8 @@ local function hideMissingMemberFrame(member)
         frame.__nr_modifier = nil
         frame.__nr_debuff_count = nil
         frame.__nr_has_dispellable_debuff = nil
+        frame.__nr_team_authority = nil
+        frame.__nr_team_authority_scanned = false
         frame.__nr_cached_distance = nil
         frame.__nr_last_distance_ms = nil
         frame.__nr_has_seen_distance = nil
@@ -1317,9 +1399,11 @@ local function hideMissingMemberFrame(member)
         frame.__nr_visible = nil
         frame.__nr_hp_after_visible = nil
         frame.__nr_mp_after_visible = nil
+        frame.__nr_leader_visible = nil
         updateCachedVisible(frame, "__nr_visible", frame, false)
         updateCachedVisible(frame, "__nr_hp_after_visible", frame.hpAfterBar, false)
         updateCachedVisible(frame, "__nr_mp_after_visible", frame.mpAfterBar, false)
+        updateCachedVisible(frame, "__nr_leader_visible", frame.leaderMark, false)
     end
 end
 
@@ -1688,6 +1772,8 @@ local function applyMemberWidgetBindings(frame, member, resolvedUnitId)
     frame.__nr_modifier = nil
     frame.__nr_debuff_count = nil
     frame.__nr_has_dispellable_debuff = nil
+    frame.__nr_team_authority = nil
+    frame.__nr_team_authority_scanned = false
     frame.__nr_cached_distance = nil
     frame.__nr_last_distance_ms = nil
     frame.__nr_has_seen_distance = nil
@@ -1882,6 +1968,13 @@ local function renderMember(frame, settings, cfg, member, refreshMetadata, refre
         frame.__nr_has_dispellable_debuff = hasDispellableDebuff(member.unit, frame.__nr_debuff_count)
     end
     local showDebuff = cfg.show_debuff_alert ~= false and (tonumber(frame.__nr_debuff_count) or 0) > 0
+    if cfg.show_leader_badge ~= false and (refreshMetadata or frame.__nr_team_authority_scanned ~= true) then
+        frame.__nr_team_authority = safeUnitTeamAuthority(member.unit)
+        frame.__nr_team_authority_scanned = true
+    elseif cfg.show_leader_badge == false then
+        frame.__nr_team_authority = nil
+        frame.__nr_team_authority_scanned = false
+    end
 
     if refreshStatic then
         local displayName = formatName(member.name, cfg.name_max_chars)
@@ -1905,6 +1998,8 @@ local function renderMember(frame, settings, cfg, member, refreshMetadata, refre
         updateCachedVisible(frame, "__nr_badge_visible", frame.badgeLabel, trim(badgeText) ~= "")
         updateCachedLabelColor(frame, "__nr_badge_color", frame.badgeLabel, { 255, 230, 120, 255 })
     end
+
+    updateLeaderMark(frame, cfg, frame.__nr_team_authority)
 
     updateCachedLabelColor(frame, "__nr_name_color", frame.nameLabel, nameColor)
     updateCachedLabelColor(frame, "__nr_meta_color", frame.metaLabel, nameColor)

@@ -5,12 +5,12 @@ Custom raid frames for AAClassic. STILL BETA but ready for a full release.
 ## What It Does
 
 - Replaces the visual raid frame with custom Nuzi raid bars.
-- Shows raid member HP, optional MP, names, status text, role badges, class text, target highlight, and debuff alert badges.
+- Shows raid member HP, optional MP, names, status text, role badges, raid leader badge, class text, target highlight, and debuff alert badges.
 - Supports party columns, single list, compact grid, and party-only layouts.
 - Lets you customize role HP colors, MP colors, HP/MP missing backfill colors, bloodlust team color, text colors, background, target highlight, and debuff alert colors.
 - Supports raid, player, and NPC-style bar textures.
 - Keeps settings, backups, launcher position, and frame position in `nuzi-raid/.data` so updates do not wipe them.
-- Opens from the movable launcher icon or chat commands.
+- Opens from the movable launcher icon or chat commands, with adjustable launcher icon size.
 
 ## Install
 
@@ -32,9 +32,9 @@ Shift+drag the launcher icon or settings window to move them.
 
 The settings window is split into:
 
-- `General`: enable frames, layout mode, frame position, spacing, and save tools.
+- `General`: enable frames, layout mode, launcher icon size, frame position, spacing, and save tools.
 - `Bars`: HP/MP size, textures, role colors, missing backfill colors, bloodlust color, and dead/offline bar colors.
-- `Text`: name, HP text, status text, class text, role badge, placement, and text colors.
+- `Text`: name, HP text, status text, class text, role badge, raid leader badge, placement, and text colors.
 - `Misc`: background, target highlight, debuff alerts, and range fade.
 
 ## Stock Raid Frames
@@ -56,4 +56,4 @@ To hide the stock raid display, open the raid manager and uncheck `View Raid Inf
 
 ## Version
 
-2.0.2
+2.0.3

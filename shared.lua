@@ -10,7 +10,7 @@ local Shared = {}
 Shared.CONSTANTS = {
     ADDON_ID = "nuzi-raid",
     TITLE = "Nuzi Raid",
-    VERSION = "2.0.1",
+    VERSION = "2.0.3",
     BUTTON_ID = "nuziRaidSettingsButton",
     WINDOW_ID = "nuziRaidSettingsWindow",
     SETTINGS_FILE_PATH = "nuzi-raid/.data/settings.txt",
@@ -92,6 +92,8 @@ Shared.DEFAULT_SETTINGS = {
         icon_offset_y = 0,
         class_offset_x = 0,
         class_offset_y = 0,
+        show_leader_badge = true,
+        leader_badge_size = 11,
         show_role_badge = false,
         role_offset_x = 0,
         role_offset_y = 0,
@@ -195,6 +197,7 @@ local function normalizeSettings(settings)
     local buttonX = Runtime.Clamp(settings.button_x, 0, 4000, Shared.DEFAULT_SETTINGS.button_x)
     local buttonY = Runtime.Clamp(settings.button_y, 0, 4000, Shared.DEFAULT_SETTINGS.button_y)
     local buttonSize = Runtime.Clamp(settings.button_size, 32, 96, Shared.DEFAULT_SETTINGS.button_size)
+    local leaderBadgeSize = Runtime.Clamp(settings.raidframes.leader_badge_size, 6, 32, Shared.DEFAULT_SETTINGS.raidframes.leader_badge_size)
     if settings.button_x ~= buttonX then
         settings.button_x = buttonX
         changed = true
@@ -205,6 +208,10 @@ local function normalizeSettings(settings)
     end
     if settings.button_size ~= buttonSize then
         settings.button_size = buttonSize
+        changed = true
+    end
+    if settings.raidframes.leader_badge_size ~= leaderBadgeSize then
+        settings.raidframes.leader_badge_size = leaderBadgeSize
         changed = true
     end
 

@@ -263,6 +263,15 @@ function Unit.SafeUnitOffline(unit)
     return ok and offline and true or false
 end
 
+function Unit.SafeUnitTeamAuthority(unit)
+    local authority = callApiUnit("UnitTeamAuthority", unit)
+    authority = trim(authority)
+    if authority == "" or authority == "looting" then
+        return nil
+    end
+    return authority
+end
+
 function Unit.SafeDebuffCount(unit)
     if api.Unit == nil or api.Unit.UnitDeBuffCount == nil then
         return 0

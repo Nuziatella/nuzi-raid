@@ -1479,6 +1479,7 @@ local function refreshControls()
     SettingsUi.controls.show_target_highlight:SetChecked(raid.show_target_highlight ~= false)
     SettingsUi.controls.show_debuff_alert:SetChecked(raid.show_debuff_alert ~= false)
     SettingsUi.controls.show_class_icon:SetChecked(raid.show_class_icon ~= false)
+    SettingsUi.controls.show_leader_badge:SetChecked(raid.show_leader_badge ~= false)
     SettingsUi.controls.show_role_badge:SetChecked(raid.show_role_badge == true)
     SettingsUi.controls.show_status_text:SetChecked(raid.show_status_text ~= false)
     SettingsUi.controls.show_group_headers:SetChecked(raid.show_group_headers ~= false)
@@ -1493,6 +1494,8 @@ local function refreshControls()
     setSlider(SettingsUi.controls.name_max_chars, SettingsUi.controls.name_max_chars_val, raid.name_max_chars or 0)
     setSlider(SettingsUi.controls.value_font_size, SettingsUi.controls.value_font_size_val, raid.value_font_size or 10)
     setSlider(SettingsUi.controls.icon_size, SettingsUi.controls.icon_size_val, raid.icon_size or 12)
+    setSlider(SettingsUi.controls.leader_badge_size, SettingsUi.controls.leader_badge_size_val, raid.leader_badge_size or 11)
+    setSlider(SettingsUi.controls.button_size, SettingsUi.controls.button_size_val, settings.button_size or 48)
     setSlider(SettingsUi.controls.name_padding_left, SettingsUi.controls.name_padding_left_val, raid.name_padding_left or 0)
     setSlider(SettingsUi.controls.name_offset_x, SettingsUi.controls.name_offset_x_val, raid.name_offset_x or 0)
     setSlider(SettingsUi.controls.name_offset_y, SettingsUi.controls.name_offset_y_val, raid.name_offset_y or 0)
@@ -1521,6 +1524,7 @@ local function refreshControls()
     safeSetText(SettingsUi.controls.runtime_line_1, runtimeLines ~= nil and runtimeLines[1] or "")
     safeSetText(SettingsUi.controls.runtime_line_2, runtimeLines ~= nil and runtimeLines[2] or "")
     safeSetText(SettingsUi.controls.runtime_status, Compat ~= nil and Compat.GetStatusText() or "")
+    applyLauncherLayout()
 end
 
 local function collectSettings()
@@ -1539,6 +1543,7 @@ local function collectSettings()
     raid.show_target_highlight = SettingsUi.controls.show_target_highlight:GetChecked()
     raid.show_debuff_alert = SettingsUi.controls.show_debuff_alert:GetChecked()
     raid.show_class_icon = SettingsUi.controls.show_class_icon:GetChecked()
+    raid.show_leader_badge = SettingsUi.controls.show_leader_badge:GetChecked()
     raid.show_role_badge = SettingsUi.controls.show_role_badge:GetChecked()
     raid.show_status_text = SettingsUi.controls.show_status_text:GetChecked()
     raid.show_group_headers = SettingsUi.controls.show_group_headers:GetChecked()
@@ -1553,6 +1558,8 @@ local function collectSettings()
     raid.name_max_chars = sliderValue(SettingsUi.controls.name_max_chars, raid.name_max_chars)
     raid.value_font_size = sliderValue(SettingsUi.controls.value_font_size, raid.value_font_size)
     raid.icon_size = sliderValue(SettingsUi.controls.icon_size, raid.icon_size)
+    raid.leader_badge_size = sliderValue(SettingsUi.controls.leader_badge_size, raid.leader_badge_size)
+    settings.button_size = sliderValue(SettingsUi.controls.button_size, settings.button_size)
     raid.name_padding_left = sliderValue(SettingsUi.controls.name_padding_left, raid.name_padding_left)
     raid.name_offset_x = sliderValue(SettingsUi.controls.name_offset_x, raid.name_offset_x)
     raid.name_offset_y = sliderValue(SettingsUi.controls.name_offset_y, raid.name_offset_y)
@@ -1736,6 +1743,11 @@ local function ensureWindow()
     SettingsUi.controls.runtime_line_1 = createLabel("nuziRaidRuntimeLine1", generalPanel, "", rightX, yRight + 28, 12, 330)
     SettingsUi.controls.runtime_line_2 = createLabel("nuziRaidRuntimeLine2", generalPanel, "", rightX, yRight + 46, 12, 330)
     SettingsUi.controls.runtime_status = createLabel("nuziRaidRuntimeStatus", generalPanel, "", rightX, yRight + 64, 12, 330)
+    yRight = yRight + 104
+
+    createLabel("nuziRaidSectionLauncher", generalPanel, "Launcher", rightX, yRight, 15, 160)
+    yRight = yRight + 26
+    SettingsUi.controls.button_size, SettingsUi.controls.button_size_val = createSlider("nuziRaidLauncherSize", generalPanel, "Icon size", rightX, yRight, 32, 96)
 
     yLeft = 12
     yRight = 12
@@ -1785,6 +1797,7 @@ local function ensureWindow()
     SettingsUi.controls.show_value_text = createCheckbox("nuziRaidValueText", textPanel, "Show HP/MP text", leftX, yLeft); yLeft = yLeft + 30
     SettingsUi.controls.show_status_text = createCheckbox("nuziRaidStatusText", textPanel, "Show dead/offline text", leftX, yLeft); yLeft = yLeft + 30
     SettingsUi.controls.show_class_icon = createCheckbox("nuziRaidClassMeta", textPanel, "Show class text", leftX, yLeft); yLeft = yLeft + 30
+    SettingsUi.controls.show_leader_badge = createCheckbox("nuziRaidLeaderBadge", textPanel, "Show raid leader badge", leftX, yLeft); yLeft = yLeft + 30
     SettingsUi.controls.show_role_badge = createCheckbox("nuziRaidRoleBadge", textPanel, "Show role badge", leftX, yLeft); yLeft = yLeft + 40
 
     createLabel("nuziRaidSectionTextSize", textPanel, "Text Size", leftX, yLeft, 15, 160)
@@ -1792,7 +1805,8 @@ local function ensureWindow()
     SettingsUi.controls.name_font_size, SettingsUi.controls.name_font_size_val = createSlider("nuziRaidNameFont", textPanel, "Name font", leftX, yLeft, 6, 32); yLeft = yLeft + 32
     SettingsUi.controls.name_max_chars, SettingsUi.controls.name_max_chars_val = createSlider("nuziRaidNameMaxChars", textPanel, "Name max chars", leftX, yLeft, 0, 32); yLeft = yLeft + 32
     SettingsUi.controls.value_font_size, SettingsUi.controls.value_font_size_val = createSlider("nuziRaidValueFont", textPanel, "Value font", leftX, yLeft, 6, 24); yLeft = yLeft + 32
-    SettingsUi.controls.icon_size, SettingsUi.controls.icon_size_val = createSlider("nuziRaidIconSize", textPanel, "Badge font", leftX, yLeft, 8, 24); yLeft = yLeft + 40
+    SettingsUi.controls.icon_size, SettingsUi.controls.icon_size_val = createSlider("nuziRaidIconSize", textPanel, "Class/role badge", leftX, yLeft, 8, 24); yLeft = yLeft + 32
+    SettingsUi.controls.leader_badge_size, SettingsUi.controls.leader_badge_size_val = createSlider("nuziRaidLeaderBadgeSize", textPanel, "Leader badge", leftX, yLeft, 6, 32); yLeft = yLeft + 40
 
     createLabel("nuziRaidSectionTextColors", textPanel, "Text Colors", leftX, yLeft, 15, 160)
     do
