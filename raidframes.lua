@@ -411,6 +411,20 @@ local function getLayoutMax(cfg)
     return MAX_RAID_MEMBERS
 end
 
+local function getPartyColumnsPerRow(cfg)
+    return clamp(type(cfg) == "table" and cfg.party_columns_per_row or nil, 1, 10, 5)
+end
+
+local function getPartyBlockHeight(cfg)
+    local frameHeight = getFrameHeight(cfg)
+    local gapY = clamp(cfg.gap_y, 0, 80, 2)
+    local height = (GROUP_SIZE * frameHeight) + ((GROUP_SIZE - 1) * gapY)
+    if cfg.show_group_headers ~= false then
+        height = height + HEADER_HEIGHT + HEADER_GAP
+    end
+    return height
+end
+
 local function createColorDrawable(owner, name, r, g, b, a)
     if owner == nil or owner.CreateColorDrawable == nil then
         return nil
@@ -445,6 +459,36 @@ local function savePosition()
     Shared.SaveSettings()
 end
 
+local function raiseMemberFrames()
+    for _, frame in pairs(RaidFrames.frames) do
+        safeRaise(frame)
+        safeRaise(frame.hpAfterBar)
+        safeRaise(frame.hpBar)
+        safeRaise(frame.mpAfterBar)
+        safeRaise(frame.mpBar)
+        safeRaise(frame.nameLabel)
+        safeRaise(frame.metaLabel)
+        safeRaise(frame.leaderMark)
+        safeRaise(frame.valueLabel)
+        safeRaise(frame.statusLabel)
+        safeRaise(frame.badgeLabel)
+        safeRaise(frame.debuffBadge)
+        safeRaise(frame.eventWindow)
+    end
+end
+
+local function canDragContainer()
+    local settings = Shared ~= nil and Shared.GetSettings() or nil
+    local dragRequiresShift = type(settings) == "table" and settings.drag_requires_shift
+    if dragRequiresShift and api.Input ~= nil and api.Input.IsShiftKeyDown ~= nil then
+        local ok, down = pcall(function()
+            return api.Input:IsShiftKeyDown()
+        end)
+        return ok and down == true
+    end
+    return true
+end
+
 local function applyContainerPosition(cfg)
     local wnd = RaidFrames.container
     if wnd == nil then
@@ -470,55 +514,71 @@ local function ensureContainer()
         safeSetUiLayer(wnd, RAID_UI_LAYER)
     end)
 
-    local dragHandle = api.Interface:CreateWidget("label", "nuziRaidFramesDragHandle", wnd)
+    local dragHandle = api.Interface:CreateWidget("emptywidget", "nuziRaidFramesDragHandle", wnd)
     pcall(function()
         dragHandle:Show(true)
-        dragHandle:SetText("Nuzi Raid")
         dragHandle:SetExtent(120, DRAG_HANDLE_HEIGHT)
-        if dragHandle.style ~= nil then
-            dragHandle.style:SetFontSize(10)
-            dragHandle.style:SetColor(0.82, 0.82, 0.82, 0.8)
-            if dragHandle.style.SetAlign ~= nil and ALIGN_REF ~= nil and ALIGN_REF.LEFT ~= nil then
-                dragHandle.style:SetAlign(ALIGN_REF.LEFT)
-            end
-        end
         dragHandle:AddAnchor("TOPLEFT", wnd, 0, -DRAG_HANDLE_HEIGHT)
     end)
-
-    function wnd:OnDragStart()
-        local settings = Shared ~= nil and Shared.GetSettings() or nil
-        local dragRequiresShift = type(settings) == "table" and settings.drag_requires_shift
-        if dragRequiresShift and api.Input ~= nil and api.Input.IsShiftKeyDown ~= nil then
-            local ok, down = pcall(function()
-                return api.Input:IsShiftKeyDown()
-            end)
-            if not ok or not down then
-                return
+    local dragLabel = api.Interface:CreateWidget("label", "nuziRaidFramesDragHandleLabel", dragHandle)
+    pcall(function()
+        dragLabel:Show(true)
+        dragLabel:SetText("Nuzi Raid")
+        dragLabel:SetExtent(120, DRAG_HANDLE_HEIGHT)
+        dragLabel:AddAnchor("TOPLEFT", dragHandle, 0, 0)
+        if dragLabel.style ~= nil then
+            dragLabel.style:SetFontSize(10)
+            dragLabel.style:SetColor(0.82, 0.82, 0.82, 0.8)
+            if dragLabel.style.SetAlign ~= nil and ALIGN_REF ~= nil and ALIGN_REF.LEFT ~= nil then
+                dragLabel.style:SetAlign(ALIGN_REF.LEFT)
             end
         end
-        if self.StartMoving ~= nil then
-            self:StartMoving()
+        safeClickable(dragLabel, false)
+        safeEnablePick(dragLabel, false)
+    end)
+
+    pcall(function()
+        if wnd.EnableDrag ~= nil then
+            wnd:EnableDrag(false)
+        end
+        safeClickable(wnd, false)
+    end)
+
+    function dragHandle:OnDragStart()
+        if not canDragContainer() then
+            return
+        end
+        if wnd.StartMoving ~= nil then
+            wnd:StartMoving()
+            wnd.__nr_dragging = true
         end
     end
 
-    function wnd:OnDragStop()
-        if self.StopMovingOrSizing ~= nil then
-            self:StopMovingOrSizing()
+    function dragHandle:OnDragStop()
+        if wnd.__nr_dragging ~= true then
+            return
+        end
+        wnd.__nr_dragging = false
+        if wnd.StopMovingOrSizing ~= nil then
+            wnd:StopMovingOrSizing()
         end
         savePosition()
+        raiseMemberFrames()
     end
 
     pcall(function()
-        if wnd.SetHandler ~= nil then
-            wnd:SetHandler("OnDragStart", wnd.OnDragStart)
-            wnd:SetHandler("OnDragStop", wnd.OnDragStop)
+        if dragHandle.SetHandler ~= nil then
+            dragHandle:SetHandler("OnDragStart", dragHandle.OnDragStart)
+            dragHandle:SetHandler("OnDragStop", dragHandle.OnDragStop)
         end
-        if wnd.RegisterForDrag ~= nil then
-            wnd:RegisterForDrag("LeftButton")
+        if dragHandle.RegisterForDrag ~= nil then
+            dragHandle:RegisterForDrag("LeftButton")
         end
-        if wnd.EnableDrag ~= nil then
-            wnd:EnableDrag(true)
+        if dragHandle.EnableDrag ~= nil then
+            dragHandle:EnableDrag(true)
         end
+        safeClickable(dragHandle, true)
+        safeEnablePick(dragHandle, true)
     end)
 
     RaidFrames.container = wnd
@@ -545,11 +605,13 @@ local function updateContainerExtent(cfg, members)
                 maxGroup = groupIndex
             end
         end
-        width = (maxGroup * frameWidth) + ((maxGroup - 1) * gapX)
-        height = (GROUP_SIZE * frameHeight) + ((GROUP_SIZE - 1) * gapY)
-        if cfg.show_group_headers ~= false then
-            height = height + HEADER_HEIGHT + HEADER_GAP
-        end
+        local partyColumns = getPartyColumnsPerRow(cfg)
+        local usedColumns = math.min(maxGroup, partyColumns)
+        local partyRows = math.max(1, math.ceil(maxGroup / partyColumns))
+        local partyBlockHeight = getPartyBlockHeight(cfg)
+        local partyRowGap = clamp(cfg.party_row_gap, 0, 160, 10)
+        width = (usedColumns * frameWidth) + ((usedColumns - 1) * gapX)
+        height = (partyRows * partyBlockHeight) + ((partyRows - 1) * partyRowGap)
     elseif layout == "single_list" then
         local rows = math.max(1, count)
         width = frameWidth
@@ -1651,8 +1713,13 @@ local function updateFramePosition(frame, cfg, member, visibleIndex)
     if layout == "party_columns" or layout == "party_only" then
         local groupIndex = math.floor(((member.index or 1) - 1) / GROUP_SIZE)
         local slot = ((member.index or 1) - 1) % GROUP_SIZE
-        x = groupIndex * (width + gapX)
-        y = slot * (frameHeight + gapY)
+        local partyColumns = getPartyColumnsPerRow(cfg)
+        local partyColumn = groupIndex % partyColumns
+        local partyRow = math.floor(groupIndex / partyColumns)
+        local partyBlockHeight = getPartyBlockHeight(cfg)
+        local partyRowGap = clamp(cfg.party_row_gap, 0, 160, 10)
+        x = partyColumn * (width + gapX)
+        y = (partyRow * (partyBlockHeight + partyRowGap)) + (slot * (frameHeight + gapY))
         if showHeaders then
             y = y + HEADER_HEIGHT + HEADER_GAP
         end
@@ -1694,8 +1761,17 @@ local function updateGroupHeaders(cfg, members)
             for _, member in ipairs(members) do
                 local groupIndex = math.floor(((member.index or 1) - 1) / GROUP_SIZE) + 1
                 if not shown[groupIndex] then
+                    local zeroIndex = groupIndex - 1
+                    local partyColumns = getPartyColumnsPerRow(cfg)
+                    local partyColumn = zeroIndex % partyColumns
+                    local partyRow = math.floor(zeroIndex / partyColumns)
+                    local partyBlockHeight = getPartyBlockHeight(cfg)
+                    local partyRowGap = clamp(cfg.party_row_gap, 0, 160, 10)
                     shown[groupIndex] = true
-                    positions[groupIndex] = { x = (groupIndex - 1) * (width + gapX), y = 0 }
+                    positions[groupIndex] = {
+                        x = partyColumn * (width + gapX),
+                        y = partyRow * (partyBlockHeight + partyRowGap)
+                    }
                 end
             end
         elseif layout == "single_list" then

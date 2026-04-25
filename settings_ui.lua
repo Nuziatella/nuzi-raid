@@ -78,7 +78,12 @@ local PAGE_DEFS = {
     general = {
         label = "General",
         title = "General",
-        summary = "Core behavior, layout mode, save path, and status."
+        summary = "Core behavior, launcher, save path, and status."
+    },
+    layout = {
+        label = "Layout",
+        title = "Layout",
+        summary = "Party wrapping, compact grid columns, spacing, and headers."
     },
     bars = {
         label = "Bars",
@@ -1512,6 +1517,11 @@ local function refreshControls()
     setSlider(SettingsUi.controls.debuff_size, SettingsUi.controls.debuff_size_val, raid.debuff_size or 8)
     setSlider(SettingsUi.controls.range_max_distance, SettingsUi.controls.range_max_distance_val, raid.range_max_distance or 80)
     setSlider(SettingsUi.controls.range_alpha_pct, SettingsUi.controls.range_alpha_pct_val, raid.range_alpha_pct or 45)
+    setSlider(SettingsUi.controls.party_columns_per_row, SettingsUi.controls.party_columns_per_row_val, raid.party_columns_per_row or 5)
+    setSlider(SettingsUi.controls.grid_columns, SettingsUi.controls.grid_columns_val, raid.grid_columns or 8)
+    setSlider(SettingsUi.controls.gap_x, SettingsUi.controls.gap_x_val, raid.gap_x or 2)
+    setSlider(SettingsUi.controls.gap_y, SettingsUi.controls.gap_y_val, raid.gap_y or 2)
+    setSlider(SettingsUi.controls.party_row_gap, SettingsUi.controls.party_row_gap_val, raid.party_row_gap or 10)
     refreshColorCards(style)
     SettingsUi.controls.layout.__value = tostring(raid.layout_mode or "party_columns")
     SettingsUi.controls.bar_style_mode.__value = tostring(raid.bar_style_mode or "shared")
@@ -1576,6 +1586,11 @@ local function collectSettings()
     raid.debuff_size = sliderValue(SettingsUi.controls.debuff_size, raid.debuff_size)
     raid.range_max_distance = sliderValue(SettingsUi.controls.range_max_distance, raid.range_max_distance)
     raid.range_alpha_pct = sliderValue(SettingsUi.controls.range_alpha_pct, raid.range_alpha_pct)
+    raid.party_columns_per_row = sliderValue(SettingsUi.controls.party_columns_per_row, raid.party_columns_per_row)
+    raid.grid_columns = sliderValue(SettingsUi.controls.grid_columns, raid.grid_columns)
+    raid.gap_x = sliderValue(SettingsUi.controls.gap_x, raid.gap_x)
+    raid.gap_y = sliderValue(SettingsUi.controls.gap_y, raid.gap_y)
+    raid.party_row_gap = sliderValue(SettingsUi.controls.party_row_gap, raid.party_row_gap)
     for _, group in ipairs(COLOR_GROUPS) do
         ensureStyleColor(style, group)
     end
@@ -1696,15 +1711,18 @@ local function ensureWindow()
 
     local navY = 106
     createTabButton("nuziRaidTabGeneral", navParent, "general", 10, navY, 146); navY = navY + 36
+    createTabButton("nuziRaidTabLayout", navParent, "layout", 10, navY, 146); navY = navY + 36
     createTabButton("nuziRaidTabBars", navParent, "bars", 10, navY, 146); navY = navY + 36
     createTabButton("nuziRaidTabText", navParent, "text", 10, navY, 146); navY = navY + 36
     createTabButton("nuziRaidTabMisc", navParent, "misc", 10, navY, 146)
 
     local generalPanel = createPanel("nuziRaidGeneralPanel", contentParent, 18, 70, 738, 690)
+    local layoutPanel = createPanel("nuziRaidLayoutPanel", contentParent, 18, 70, 738, 690)
     local barsPanel = createPanel("nuziRaidBarsPanel", contentParent, 18, 70, 738, 690)
     local textPanel = createPanel("nuziRaidTextPanel", contentParent, 18, 70, 738, 690)
     local miscPanel = createPanel("nuziRaidMiscPanel", contentParent, 18, 70, 738, 690)
     SettingsUi.panels.general = generalPanel
+    SettingsUi.panels.layout = layoutPanel
     SettingsUi.panels.bars = barsPanel
     SettingsUi.panels.text = textPanel
     SettingsUi.panels.misc = miscPanel
@@ -1721,14 +1739,6 @@ local function ensureWindow()
     yLeft = yLeft + 26
     SettingsUi.controls.enabled = createCheckbox("nuziRaidEnabled", generalPanel, "Addon enabled", leftX, yLeft); yLeft = yLeft + 30
     SettingsUi.controls.raid_enabled = createCheckbox("nuziRaidRaidEnabled", generalPanel, "Replacement frames enabled", leftX, yLeft); yLeft = yLeft + 38
-
-    createLabel("nuziRaidLayoutLbl", generalPanel, "Layout mode", leftX, yLeft, 13, 140)
-    SettingsUi.controls.layout = createButton("nuziRaidLayoutBtn", generalPanel, "", leftX + 150, yLeft - 4, 150, 28)
-    SettingsUi.controls.layout:SetHandler("OnClick", function()
-        cycleControlText("layout", { "party_columns", "single_list", "compact_grid", "party_only" })
-    end)
-    yLeft = yLeft + 38
-    SettingsUi.controls.show_group_headers = createCheckbox("nuziRaidGroupHeaders", generalPanel, "Show party headers", leftX, yLeft); yLeft = yLeft + 30
 
     createLabel("nuziRaidStockHelpTitle", generalPanel, "Stock Raid Frames", leftX, yLeft, 15, 220)
     yLeft = yLeft + 24
@@ -1748,6 +1758,36 @@ local function ensureWindow()
     createLabel("nuziRaidSectionLauncher", generalPanel, "Launcher", rightX, yRight, 15, 160)
     yRight = yRight + 26
     SettingsUi.controls.button_size, SettingsUi.controls.button_size_val = createSlider("nuziRaidLauncherSize", generalPanel, "Icon size", rightX, yRight, 32, 96)
+
+    yLeft = 12
+    yRight = 12
+    createLabel("nuziRaidSectionLayoutMode", layoutPanel, "Layout Mode", leftX, yLeft, 15, 180)
+    yLeft = yLeft + 26
+    createLabel("nuziRaidLayoutLbl", layoutPanel, "Layout mode", leftX, yLeft, 13, 140)
+    SettingsUi.controls.layout = createButton("nuziRaidLayoutBtn", layoutPanel, "", leftX + 150, yLeft - 4, 150, 28)
+    SettingsUi.controls.layout:SetHandler("OnClick", function()
+        cycleControlText("layout", { "party_columns", "single_list", "compact_grid", "party_only" })
+    end)
+    yLeft = yLeft + 38
+    SettingsUi.controls.show_group_headers = createCheckbox("nuziRaidGroupHeaders", layoutPanel, "Show party headers", leftX, yLeft); yLeft = yLeft + 42
+
+    createLabel("nuziRaidSectionPartyLayout", layoutPanel, "Party Layout", leftX, yLeft, 15, 180)
+    yLeft = yLeft + 26
+    SettingsUi.controls.party_columns_per_row, SettingsUi.controls.party_columns_per_row_val = createSlider("nuziRaidPartyColumnsPerRow", layoutPanel, "Parties per row", leftX, yLeft, 1, 10); yLeft = yLeft + 32
+    SettingsUi.controls.party_row_gap, SettingsUi.controls.party_row_gap_val = createSlider("nuziRaidPartyRowGap", layoutPanel, "Party row gap", leftX, yLeft, 0, 160); yLeft = yLeft + 42
+    createInfoLines("nuziRaidPartyLayoutHelp", layoutPanel, {
+        "Default is 5 per row:",
+        "Party 1-5, then 6-10."
+    }, leftX, yLeft, 12, 320, 18)
+
+    createLabel("nuziRaidSectionGridLayout", layoutPanel, "Compact Grid", rightX, yRight, 15, 180)
+    yRight = yRight + 26
+    SettingsUi.controls.grid_columns, SettingsUi.controls.grid_columns_val = createSlider("nuziRaidGridColumns", layoutPanel, "Grid columns", rightX, yRight, 1, 10); yRight = yRight + 42
+
+    createLabel("nuziRaidSectionSpacing", layoutPanel, "Spacing", rightX, yRight, 15, 160)
+    yRight = yRight + 26
+    SettingsUi.controls.gap_x, SettingsUi.controls.gap_x_val = createSlider("nuziRaidGapX", layoutPanel, "Column gap", rightX, yRight, 0, 80); yRight = yRight + 32
+    SettingsUi.controls.gap_y, SettingsUi.controls.gap_y_val = createSlider("nuziRaidGapY", layoutPanel, "Row gap", rightX, yRight, 0, 80)
 
     yLeft = 12
     yRight = 12

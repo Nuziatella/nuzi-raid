@@ -10,7 +10,7 @@ local Shared = {}
 Shared.CONSTANTS = {
     ADDON_ID = "nuzi-raid",
     TITLE = "Nuzi Raid",
-    VERSION = "2.0.3",
+    VERSION = "2.0.4",
     BUTTON_ID = "nuziRaidSettingsButton",
     WINDOW_ID = "nuziRaidSettingsWindow",
     SETTINGS_FILE_PATH = "nuzi-raid/.data/settings.txt",
@@ -126,6 +126,8 @@ Shared.DEFAULT_SETTINGS = {
         bar_style_mode = "shared",
         gap_x = 2,
         gap_y = 2,
+        party_columns_per_row = 5,
+        party_row_gap = 10,
         grid_columns = 8,
         bg_enabled = true,
         bg_alpha_pct = 100
@@ -198,6 +200,9 @@ local function normalizeSettings(settings)
     local buttonY = Runtime.Clamp(settings.button_y, 0, 4000, Shared.DEFAULT_SETTINGS.button_y)
     local buttonSize = Runtime.Clamp(settings.button_size, 32, 96, Shared.DEFAULT_SETTINGS.button_size)
     local leaderBadgeSize = Runtime.Clamp(settings.raidframes.leader_badge_size, 6, 32, Shared.DEFAULT_SETTINGS.raidframes.leader_badge_size)
+    local partyColumnsPerRow = Runtime.Clamp(settings.raidframes.party_columns_per_row, 1, 10, Shared.DEFAULT_SETTINGS.raidframes.party_columns_per_row)
+    local partyRowGap = Runtime.Clamp(settings.raidframes.party_row_gap, 0, 160, Shared.DEFAULT_SETTINGS.raidframes.party_row_gap)
+    local gridColumns = Runtime.Clamp(settings.raidframes.grid_columns, 1, 10, Shared.DEFAULT_SETTINGS.raidframes.grid_columns)
     if settings.button_x ~= buttonX then
         settings.button_x = buttonX
         changed = true
@@ -212,6 +217,18 @@ local function normalizeSettings(settings)
     end
     if settings.raidframes.leader_badge_size ~= leaderBadgeSize then
         settings.raidframes.leader_badge_size = leaderBadgeSize
+        changed = true
+    end
+    if settings.raidframes.party_columns_per_row ~= partyColumnsPerRow then
+        settings.raidframes.party_columns_per_row = partyColumnsPerRow
+        changed = true
+    end
+    if settings.raidframes.party_row_gap ~= partyRowGap then
+        settings.raidframes.party_row_gap = partyRowGap
+        changed = true
+    end
+    if settings.raidframes.grid_columns ~= gridColumns then
+        settings.raidframes.grid_columns = gridColumns
         changed = true
     end
 
