@@ -55,10 +55,12 @@ local DEFAULT_HP_COLOR = { 223, 69, 69, 255 }
 local DEFAULT_MP_COLOR = { 86, 198, 239, 255 }
 local OFFLINE_BAR_COLOR = { 100, 100, 100, 255 }
 local DEAD_BAR_COLOR = { 150, 70, 70, 255 }
+local DEFAULT_TEXT_COLOR = { 255, 255, 255, 255 }
 local OFFLINE_TEXT_COLOR = { 180, 180, 180, 255 }
 local DEAD_TEXT_COLOR = { 220, 150, 150, 255 }
 local TARGET_TINT_COLOR = { 255, 230, 120, 72 }
 local DEBUFF_BADGE_COLOR = { 255, 68, 68, 235 }
+local DISPELLABLE_DEBUFF_BADGE_COLOR = { 255, 210, 72, 235 }
 
 local function clamp(value, lo, hi, default)
     local num = tonumber(value)
@@ -129,8 +131,15 @@ local function safeSetWidgetTarget(widget, unit, unitId, name)
     if widget == nil or widget.SetTarget == nil then
         return false
     end
-    local candidates = { unit, unitId, name }
-    for _, candidate in ipairs(candidates) do
+    for index = 1, 3 do
+        local candidate = nil
+        if index == 1 then
+            candidate = unit
+        elseif index == 2 then
+            candidate = unitId
+        else
+            candidate = name
+        end
         local value = trim(candidate)
         if value ~= "" then
             local ok = pcall(function()
@@ -305,12 +314,10 @@ end
 
 local function updateCachedLabelColor(owner, key, widget, rgba)
     local color = rgba or { 255, 255, 255, 255 }
-    local colorKey = table.concat({
-        tostring(color[1] or ""),
-        tostring(color[2] or ""),
-        tostring(color[3] or ""),
-        tostring(color[4] or "")
-    }, ",")
+    local colorKey = tostring(color[1] or "") .. ","
+        .. tostring(color[2] or "") .. ","
+        .. tostring(color[3] or "") .. ","
+        .. tostring(color[4] or "")
     if owner[key] == colorKey then
         return
     end
@@ -320,17 +327,30 @@ end
 
 local function updateCachedBarColor(owner, key, bar, rgba)
     local color = rgba or DEFAULT_HP_COLOR
-    local colorKey = table.concat({
-        tostring(color[1] or ""),
-        tostring(color[2] or ""),
-        tostring(color[3] or ""),
-        tostring(color[4] or "")
-    }, ",")
+    local colorKey = tostring(color[1] or "") .. ","
+        .. tostring(color[2] or "") .. ","
+        .. tostring(color[3] or "") .. ","
+        .. tostring(color[4] or "")
     if owner[key] == colorKey then
         return
     end
     owner[key] = colorKey
     safeApplyBarColor(bar, color)
+end
+
+local function updateCachedDrawableColor(owner, key, drawable, r, g, b, a)
+    if drawable == nil then
+        return
+    end
+    local colorKey = tostring(r or "") .. ","
+        .. tostring(g or "") .. ","
+        .. tostring(b or "") .. ","
+        .. tostring(a or "")
+    if owner[key] == colorKey then
+        return
+    end
+    owner[key] = colorKey
+    safeSetColor(drawable, r, g, b, a)
 end
 
 local function updateCachedBarValue(owner, rangeKey, valueKey, bar, maxValue, currentValue)
@@ -544,9 +564,8 @@ local function safeUnitInfoById(unitId)
 end
 
 local function firstNumber(...)
-    local values = { ... }
-    for index = 1, #values do
-        local value = tonumber(values[index])
+    for index = 1, select("#", ...) do
+        local value = tonumber(select(index, ...))
         if value ~= nil then
             return value
         end
@@ -713,40 +732,52 @@ local function safeUnitId(unit)
     return tonumber(unitId) or unitId
 end
 
-local function safeUnitHealth(unit, unitId)
+local function safeUnitHealth(unit, unitId, includeMana)
     if api.Unit == nil then
         return nil, nil, nil, nil
     end
-    local info = safeUnitInfo(unit)
-    local hp, maxHp, mp, maxMp = extractVitalsFromInfo(info)
-    local byIdInfo = safeUnitInfoById(unitId)
-    local idHp, idMaxHp, idMp, idMaxMp = extractVitalsFromInfo(byIdInfo)
-    hp = firstNumber(idHp, hp)
-    maxHp = firstNumber(idMaxHp, maxHp)
-    mp = firstNumber(idMp, mp)
-    maxMp = firstNumber(idMaxMp, maxMp)
+    includeMana = includeMana ~= false
+    local hp = nil
+    local maxHp = nil
+    local mp = nil
+    local maxMp = nil
     pcall(function()
-        local directHp = nil
-        local directMaxHp = nil
-        local directMp = nil
-        local directMaxMp = nil
         if api.Unit.UnitHealth ~= nil then
-            directHp = tonumber(api.Unit:UnitHealth(unit))
+            hp = tonumber(api.Unit:UnitHealth(unit))
         end
         if api.Unit.UnitMaxHealth ~= nil then
-            directMaxHp = tonumber(api.Unit:UnitMaxHealth(unit))
+            maxHp = tonumber(api.Unit:UnitMaxHealth(unit))
         end
-        if api.Unit.UnitMana ~= nil then
-            directMp = tonumber(api.Unit:UnitMana(unit))
+        if includeMana and api.Unit.UnitMana ~= nil then
+            mp = tonumber(api.Unit:UnitMana(unit))
         end
-        if api.Unit.UnitMaxMana ~= nil then
-            directMaxMp = tonumber(api.Unit:UnitMaxMana(unit))
+        if includeMana and api.Unit.UnitMaxMana ~= nil then
+            maxMp = tonumber(api.Unit:UnitMaxMana(unit))
         end
-        hp = firstNumber(directHp, hp)
-        maxHp = firstNumber(directMaxHp, maxHp)
-        mp = firstNumber(directMp, mp)
-        maxMp = firstNumber(directMaxMp, maxMp)
     end)
+
+    if hp == nil or maxHp == nil or (includeMana and (mp == nil or maxMp == nil)) then
+        local info = safeUnitInfo(unit)
+        local infoHp, infoMaxHp, infoMp, infoMaxMp = extractVitalsFromInfo(info)
+        hp = firstNumber(hp, infoHp)
+        maxHp = firstNumber(maxHp, infoMaxHp)
+        if includeMana then
+            mp = firstNumber(mp, infoMp)
+            maxMp = firstNumber(maxMp, infoMaxMp)
+        end
+    end
+
+    if hp == nil or maxHp == nil or (includeMana and (mp == nil or maxMp == nil)) then
+        local byIdInfo = safeUnitInfoById(unitId)
+        local idHp, idMaxHp, idMp, idMaxMp = extractVitalsFromInfo(byIdInfo)
+        hp = firstNumber(hp, idHp)
+        maxHp = firstNumber(maxHp, idMaxHp)
+        if includeMana then
+            mp = firstNumber(mp, idMp)
+            maxMp = firstNumber(maxMp, idMaxMp)
+        end
+    end
+
     return tonumber(hp), tonumber(maxHp), tonumber(mp), tonumber(maxMp)
 end
 
@@ -904,10 +935,7 @@ local function applyFrameTextures(frame, settings)
     end
     local hpStyle = getHpTextureStyle(settings)
     local mpStyle = StatusBarStyleRef ~= nil and StatusBarStyleRef.S_MP or nil
-    local textureKey = table.concat({
-        tostring(hpStyle or "nil"),
-        tostring(mpStyle or "nil")
-    }, "|")
+    local textureKey = tostring(hpStyle or "nil") .. "|" .. tostring(mpStyle or "nil")
     if frame.__nr_texture_key == textureKey then
         return
     end
@@ -1092,6 +1120,11 @@ local function updateContainerExtent(cfg, members)
 
     width = math.max(32, width)
     height = math.max(24, height)
+    local extentKey = tostring(width) .. "|" .. tostring(height)
+    if wnd.__nr_extent_key == extentKey then
+        return
+    end
+    wnd.__nr_extent_key = extentKey
     safeSetExtent(wnd, width, height)
 end
 
@@ -1558,8 +1591,16 @@ local function applyFrameLayout(frame, cfg)
     end
 end
 
-local function tryHideStockRaidFrames(cfg)
+local function tryHideStockRaidFrames(cfg, force)
     if cfg.hide_stock ~= true or Runtime == nil or UIC == nil or UIC.RAID_MANAGER == nil then
+        RaidFrames.__nr_stock_hidden = false
+        return
+    end
+    local now = tonumber(RaidFrames.now_ms) or 0
+    if RaidFrames.__nr_stock_hidden == true
+        and force ~= true
+        and RaidFrames.__nr_stock_hide_ms ~= nil
+        and (now - RaidFrames.__nr_stock_hide_ms) < 5000 then
         return
     end
     local stock = Runtime.GetStockContent(UIC.RAID_MANAGER)
@@ -1569,6 +1610,8 @@ local function tryHideStockRaidFrames(cfg)
     pcall(function()
         stock:Show(false)
     end)
+    RaidFrames.__nr_stock_hidden = true
+    RaidFrames.__nr_stock_hide_ms = now
 end
 
 local function buildMember(unit, index)
@@ -1660,6 +1703,17 @@ local function getFrameAlpha(frame, cfg, unit, state)
     return alpha
 end
 
+local function getCachedOffline(frame, unit)
+    local now = tonumber(RaidFrames.now_ms) or 0
+    if frame.__nr_offline == nil
+        or frame.__nr_last_offline_ms == nil
+        or (now - frame.__nr_last_offline_ms) >= 500 then
+        frame.__nr_offline = safeUnitOffline(unit)
+        frame.__nr_last_offline_ms = now
+    end
+    return frame.__nr_offline
+end
+
 local function getHpColor(settings, cfg, member, state)
     if state.offline then
         return OFFLINE_BAR_COLOR
@@ -1699,7 +1753,7 @@ local function getNameColor(cfg, member, state)
     if cfg.use_role_name_colors ~= false and TEAM_ROLE_COLORS[member.role_key or ""] ~= nil then
         return TEAM_ROLE_COLORS[member.role_key]
     end
-    return { 255, 255, 255, 255 }
+    return DEFAULT_TEXT_COLOR
 end
 
 local function updateFramePosition(frame, cfg, member, visibleIndex)
@@ -1792,10 +1846,76 @@ local function updateGroupHeaders(cfg, members)
     end
 end
 
-local function renderMember(frame, settings, cfg, member, refreshMetadata)
-    member = refreshMemberSnapshot(member, refreshMetadata)
+local function assignMemberFields(widget, member, resolvedUnitId, party, slot)
+    safeAssignWidgetField(widget, "target", member.unit)
+    safeAssignWidgetField(widget, "unit", member.unit)
+    safeAssignWidgetField(widget, "unitId", resolvedUnitId)
+    safeAssignWidgetField(widget, "index", member.index)
+    safeAssignWidgetField(widget, "memberIndex", member.index)
+    safeAssignWidgetField(widget, "party", party)
+    safeAssignWidgetField(widget, "slot", slot)
+end
+
+local function applyMemberWidgetBindings(frame, member, resolvedUnitId)
+    local party = math.floor(((tonumber(member.index) or 1) - 1) / GROUP_SIZE) + 1
+    local slot = ((tonumber(member.index) or 1) - 1) % GROUP_SIZE + 1
+
+    frame.__raid_unit = member.unit
+    frame.__raid_unit_id = resolvedUnitId
+    frame.__raid_name = member.name
+    frame.__raid_member_index = member.index
+    frame.__raid_party = party
+    frame.__raid_slot = slot
+    frame.__nr_popup_owner = frame.popupOwner or frame
+
+    if frame.__nr_bound_unit == member.unit
+        and frame.__nr_bound_unit_id == resolvedUnitId
+        and frame.__nr_bound_index == member.index
+        and frame.__nr_bound_party == party
+        and frame.__nr_bound_slot == slot
+        and frame.__nr_bound_popup_owner == frame.popupOwner then
+        return false
+    end
+
+    frame.__nr_bound_unit = member.unit
+    frame.__nr_bound_unit_id = resolvedUnitId
+    frame.__nr_bound_index = member.index
+    frame.__nr_bound_party = party
+    frame.__nr_bound_slot = slot
+    frame.__nr_bound_popup_owner = frame.popupOwner
+    frame.__nr_last_hp = nil
+    frame.__nr_last_max_hp = nil
+    frame.__nr_last_mp = nil
+    frame.__nr_last_max_mp = nil
+    frame.__nr_modifier = nil
+    frame.__nr_debuff_count = nil
+    frame.__nr_has_dispellable_debuff = nil
+    frame.__nr_cached_distance = nil
+    frame.__nr_last_distance_ms = nil
+    frame.__nr_has_seen_distance = nil
+    frame.__nr_offline = nil
+    frame.__nr_last_offline_ms = nil
+    frame.__nr_static_rendered = false
+
+    assignMemberFields(frame, member, resolvedUnitId, party, slot)
+    assignMemberFields(frame.eventWindow, member, resolvedUnitId, party, slot)
+    safeSetWidgetTarget(frame.popupOwner, member.unit, resolvedUnitId, member.name)
+    assignMemberFields(frame.popupOwner, member, resolvedUnitId, party, slot)
+    assignMemberFields(frame.popupOwner ~= nil and frame.popupOwner.eventWindow or nil, member, resolvedUnitId, party, slot)
+    return true
+end
+
+local function renderMember(frame, settings, cfg, member, refreshMetadata, refreshStatic)
+    refreshStatic = refreshStatic == true or refreshMetadata == true or frame.__nr_static_rendered ~= true
+    if refreshMetadata == true or member.unit_id == nil or trim(member.name) == "" then
+        member = refreshMemberSnapshot(member, refreshMetadata)
+    end
     local resolvedUnitId = member.unit_id or frame.__raid_unit_id
-    local hp, maxHp, mp, maxMp = safeUnitHealth(member.unit, resolvedUnitId)
+    local showMpBar = clamp(cfg.mp_height, 0, 40, 0) > 0
+    if applyMemberWidgetBindings(frame, member, resolvedUnitId) then
+        refreshStatic = true
+    end
+    local hp, maxHp, mp, maxMp = safeUnitHealth(member.unit, resolvedUnitId, showMpBar)
     hp, maxHp = mergeResourceValues(hp, maxHp, frame.__nr_last_hp, frame.__nr_last_max_hp)
     mp, maxMp = mergeResourceValues(mp, maxMp, frame.__nr_last_mp, frame.__nr_last_max_mp)
     if hasUsableVitals(hp, maxHp) then
@@ -1806,7 +1926,7 @@ local function renderMember(frame, settings, cfg, member, refreshMetadata)
         frame.__nr_last_mp = mp
         frame.__nr_last_max_mp = maxMp
     end
-    local offline = safeUnitOffline(member.unit)
+    local offline = getCachedOffline(frame, member.unit)
     local modifier = frame.__nr_modifier
     if refreshMetadata or modifier == nil then
         modifier = safeUnitModifierInfo(member.unit)
@@ -1820,55 +1940,9 @@ local function renderMember(frame, settings, cfg, member, refreshMetadata)
         statusText = "Dead"
     end
 
-    frame.__raid_unit = member.unit
-    frame.__raid_unit_id = resolvedUnitId
-    frame.__raid_name = member.name
-    frame.__raid_member_index = member.index
-    frame.__raid_party = math.floor(((tonumber(member.index) or 1) - 1) / GROUP_SIZE) + 1
-    frame.__raid_slot = ((tonumber(member.index) or 1) - 1) % GROUP_SIZE + 1
-    safeAssignWidgetField(frame, "target", member.unit)
-    safeAssignWidgetField(frame, "unit", member.unit)
-    safeAssignWidgetField(frame, "unitId", resolvedUnitId)
-    safeAssignWidgetField(frame, "index", member.index)
-    safeAssignWidgetField(frame, "memberIndex", member.index)
-    safeAssignWidgetField(frame, "party", frame.__raid_party)
-    safeAssignWidgetField(frame, "slot", frame.__raid_slot)
-    safeAssignWidgetField(frame.eventWindow, "target", member.unit)
-    safeAssignWidgetField(frame.eventWindow, "unit", member.unit)
-    safeAssignWidgetField(frame.eventWindow, "unitId", resolvedUnitId)
-    safeAssignWidgetField(frame.eventWindow, "index", member.index)
-    safeAssignWidgetField(frame.eventWindow, "memberIndex", member.index)
-    safeAssignWidgetField(frame.eventWindow, "party", frame.__raid_party)
-    safeAssignWidgetField(frame.eventWindow, "slot", frame.__raid_slot)
-    applyFrameTextures(frame, settings)
-    safeSetWidgetTarget(frame.popupOwner, member.unit, resolvedUnitId, member.name)
-    safeAssignWidgetField(frame.popupOwner, "target", member.unit)
-    safeAssignWidgetField(frame.popupOwner, "unit", member.unit)
-    safeAssignWidgetField(frame.popupOwner, "unitId", resolvedUnitId)
-    safeAssignWidgetField(frame.popupOwner, "index", member.index)
-    safeAssignWidgetField(frame.popupOwner, "memberIndex", member.index)
-    safeAssignWidgetField(frame.popupOwner, "party", frame.__raid_party)
-    safeAssignWidgetField(frame.popupOwner, "slot", frame.__raid_slot)
-    safeAssignWidgetField(frame.popupOwner ~= nil and frame.popupOwner.eventWindow or nil, "target", member.unit)
-    safeAssignWidgetField(frame.popupOwner ~= nil and frame.popupOwner.eventWindow or nil, "unit", member.unit)
-    safeAssignWidgetField(frame.popupOwner ~= nil and frame.popupOwner.eventWindow or nil, "unitId", resolvedUnitId)
-    safeAssignWidgetField(frame.popupOwner ~= nil and frame.popupOwner.eventWindow or nil, "index", member.index)
-    safeAssignWidgetField(frame.popupOwner ~= nil and frame.popupOwner.eventWindow or nil, "memberIndex", member.index)
-    safeAssignWidgetField(frame.popupOwner ~= nil and frame.popupOwner.eventWindow or nil, "party", frame.__raid_party)
-    safeAssignWidgetField(frame.popupOwner ~= nil and frame.popupOwner.eventWindow or nil, "slot", frame.__raid_slot)
-    frame.__nr_popup_owner = frame.popupOwner or frame
-
-    local displayName = formatName(member.name, cfg.name_max_chars)
-    if cfg.show_role_prefix ~= false then
-        displayName = getRolePrefix(member.role_key) .. displayName
-    end
-    local metaText = ""
-    if cfg.show_class_icon ~= false then
-        metaText = getClassBadge(member.class_name)
-    end
-    local badgeText = ""
-    if cfg.show_role_badge == true then
-        badgeText = getRoleBadge(member.role_key, cfg.hide_dps_role_badge ~= false)
+    if refreshStatic then
+        applyFrameTextures(frame, settings)
+        frame.__nr_static_rendered = true
     end
 
     local targetMatch = member.unit_id ~= nil
@@ -1877,9 +1951,8 @@ local function renderMember(frame, settings, cfg, member, refreshMetadata)
 
     local nameColor = getNameColor(cfg, member, state)
     local hpColor = getHpColor(settings, cfg, member, state)
-    local mpColor = getMpColor(settings, cfg)
+    local mpColor = showMpBar and getMpColor(settings, cfg) or nil
 
-    local showName = cfg.show_name ~= false and trim(displayName) ~= ""
     local showValue = cfg.show_value_text and statusText == ""
     local showStatus = cfg.show_status_text ~= false and statusText ~= ""
     if refreshMetadata or frame.__nr_debuff_count == nil then
@@ -1888,17 +1961,31 @@ local function renderMember(frame, settings, cfg, member, refreshMetadata)
     end
     local showDebuff = cfg.show_debuff_alert ~= false and (tonumber(frame.__nr_debuff_count) or 0) > 0
 
-    updateCachedText(frame, "__nr_name", frame.nameLabel, displayName)
-    updateCachedVisible(frame, "__nr_name_visible", frame.nameLabel, showName)
+    if refreshStatic then
+        local displayName = formatName(member.name, cfg.name_max_chars)
+        if cfg.show_role_prefix ~= false then
+            displayName = getRolePrefix(member.role_key) .. displayName
+        end
+        local metaText = ""
+        if cfg.show_class_icon ~= false then
+            metaText = getClassBadge(member.class_name)
+        end
+        local badgeText = ""
+        if cfg.show_role_badge == true then
+            badgeText = getRoleBadge(member.role_key, cfg.hide_dps_role_badge ~= false)
+        end
+
+        updateCachedText(frame, "__nr_name", frame.nameLabel, displayName)
+        updateCachedVisible(frame, "__nr_name_visible", frame.nameLabel, cfg.show_name ~= false and trim(displayName) ~= "")
+        updateCachedText(frame, "__nr_meta", frame.metaLabel, metaText)
+        updateCachedVisible(frame, "__nr_meta_visible", frame.metaLabel, trim(metaText) ~= "")
+        updateCachedText(frame, "__nr_badge", frame.badgeLabel, badgeText)
+        updateCachedVisible(frame, "__nr_badge_visible", frame.badgeLabel, trim(badgeText) ~= "")
+        updateCachedLabelColor(frame, "__nr_badge_color", frame.badgeLabel, { 255, 230, 120, 255 })
+    end
+
     updateCachedLabelColor(frame, "__nr_name_color", frame.nameLabel, nameColor)
-
-    updateCachedText(frame, "__nr_meta", frame.metaLabel, metaText)
-    updateCachedVisible(frame, "__nr_meta_visible", frame.metaLabel, trim(metaText) ~= "")
     updateCachedLabelColor(frame, "__nr_meta_color", frame.metaLabel, nameColor)
-
-    updateCachedText(frame, "__nr_badge", frame.badgeLabel, badgeText)
-    updateCachedVisible(frame, "__nr_badge_visible", frame.badgeLabel, trim(badgeText) ~= "")
-    updateCachedLabelColor(frame, "__nr_badge_color", frame.badgeLabel, { 255, 230, 120, 255 })
 
     if showValue then
         updateCachedText(frame, "__nr_value", frame.valueLabel, getValueText(cfg.value_text_mode, hp, maxHp, "hp"))
@@ -1912,26 +1999,30 @@ local function renderMember(frame, settings, cfg, member, refreshMetadata)
 
     updateCachedBarColor(frame, "__nr_hp_color", frame.hpBar, hpColor)
     updateCachedBarValue(frame, "__nr_hp_range", "__nr_hp_value", getBarValueTarget(frame.hpBar), maxHp, hp)
-    updateCachedBarColor(frame, "__nr_mp_color", frame.mpBar, mpColor)
-    updateCachedBarValue(frame, "__nr_mp_range", "__nr_mp_value", getBarValueTarget(frame.mpBar), maxMp, mp)
+    if showMpBar then
+        updateCachedBarColor(frame, "__nr_mp_color", frame.mpBar, mpColor)
+        updateCachedBarValue(frame, "__nr_mp_range", "__nr_mp_value", getBarValueTarget(frame.mpBar), maxMp, mp)
+    end
 
     updateCachedVisible(frame, "__nr_target_visible", frame.targetTint, cfg.show_target_highlight ~= false and targetMatch)
-    if frame.targetTint ~= nil then
-        safeSetColor(
-            frame.targetTint,
-            TARGET_TINT_COLOR[1] / 255,
-            TARGET_TINT_COLOR[2] / 255,
-            TARGET_TINT_COLOR[3] / 255,
-            TARGET_TINT_COLOR[4] / 255
-        )
-    end
+    updateCachedDrawableColor(
+        frame,
+        "__nr_target_color",
+        frame.targetTint,
+        TARGET_TINT_COLOR[1] / 255,
+        TARGET_TINT_COLOR[2] / 255,
+        TARGET_TINT_COLOR[3] / 255,
+        TARGET_TINT_COLOR[4] / 255
+    )
 
     updateCachedVisible(frame, "__nr_debuff_visible", frame.debuffBadge, showDebuff)
     if frame.debuffBadge ~= nil then
         local debuffColor = (cfg.prefer_dispel_alert ~= false and frame.__nr_has_dispellable_debuff == true)
-            and { 255, 210, 72, 235 }
+            and DISPELLABLE_DEBUFF_BADGE_COLOR
             or DEBUFF_BADGE_COLOR
-        safeSetColor(
+        updateCachedDrawableColor(
+            frame,
+            "__nr_debuff_color",
             frame.debuffBadge,
             debuffColor[1] / 255,
             debuffColor[2] / 255,
@@ -1942,7 +2033,7 @@ local function renderMember(frame, settings, cfg, member, refreshMetadata)
 
     if frame.bg ~= nil then
         local bgAlpha = cfg.bg_enabled and percent01(cfg.bg_alpha_pct, 80) or 0
-        safeSetColor(frame.bg, 0.05, 0.05, 0.06, bgAlpha)
+        updateCachedDrawableColor(frame, "__nr_bg_color", frame.bg, 0.05, 0.05, 0.06, bgAlpha)
         updateCachedVisible(frame, "__nr_bg_visible", frame.bg, cfg.bg_enabled and true or false)
     end
 
@@ -1964,47 +2055,60 @@ end
 function RaidFrames.SetEnabled(enabled)
     RaidFrames.enabled = enabled and true or false
     if not RaidFrames.enabled then
-        safeShow(RaidFrames.container, false)
+        updateCachedVisible(RaidFrames, "__nr_container_visible", RaidFrames.container, false)
         for _, frame in pairs(RaidFrames.frames) do
-            safeShow(frame, false)
+            updateCachedVisible(frame, "__nr_visible", frame, false)
         end
         for _, header in pairs(RaidFrames.group_headers) do
-            safeShow(header, false)
+            updateCachedVisible(header, "__nr_visible", header, false)
         end
     end
 end
 
 function RaidFrames.OnUpdate(settings, updateFlags)
     if type(settings) ~= "table" or type(settings.raidframes) ~= "table" then
-        safeShow(RaidFrames.container, false)
+        updateCachedVisible(RaidFrames, "__nr_container_visible", RaidFrames.container, false)
         return
     end
 
     local cfg = settings.raidframes
     local flags = type(updateFlags) == "table" and updateFlags or {}
+    local updateRoster = flags.update_roster == true or flags.force_roster == true
+    local updateMetadata = flags.update_metadata == true or updateRoster
+    local updateTarget = flags.update_target == true or RaidFrames.current_target_id == nil
+
     if not (RaidFrames.enabled and cfg.enabled) then
-        safeShow(RaidFrames.container, false)
+        updateCachedVisible(RaidFrames, "__nr_container_visible", RaidFrames.container, false)
         for _, frame in pairs(RaidFrames.frames) do
-            safeShow(frame, false)
+            updateCachedVisible(frame, "__nr_visible", frame, false)
         end
         for _, header in pairs(RaidFrames.group_headers) do
-            safeShow(header, false)
+            updateCachedVisible(header, "__nr_visible", header, false)
         end
         return
     end
 
     ensureContainer()
-    applyContainerPosition(cfg)
-    tryHideStockRaidFrames(cfg)
-    RaidFrames.now_ms = RaidFrames.now_ms + 100
+    RaidFrames.now_ms = RaidFrames.now_ms + (tonumber(flags.elapsed_ms) or 100)
 
-    if flags.update_target == true or RaidFrames.current_target_id == nil then
+    if updateTarget then
         RaidFrames.current_target_id = safeUnitId("target")
     end
 
     local members = RaidFrames.active_members
-    if flags.update_roster == true or flags.force_roster == true or type(members) ~= "table" or #members == 0 then
+    local rosterRebuilt = false
+    if updateRoster or type(members) ~= "table" or #members == 0 then
         members = rebuildRoster(cfg)
+        rosterRebuilt = true
+    end
+    local refreshLayout = rosterRebuilt or flags.force_layout == true or RaidFrames.__nr_layout_applied ~= true
+    local refreshStatic = updateMetadata or refreshLayout
+
+    if refreshLayout then
+        applyContainerPosition(cfg)
+        tryHideStockRaidFrames(cfg, flags.force_roster == true)
+    else
+        tryHideStockRaidFrames(cfg, false)
     end
 
     if #members == 0 then
@@ -2018,31 +2122,41 @@ function RaidFrames.OnUpdate(settings, updateFlags)
         return
     end
 
-    updateContainerExtent(cfg, members)
-    updateCachedAlpha(RaidFrames, "__nr_container_alpha", RaidFrames.container, percent01(cfg.alpha_pct, 100))
-    updateCachedVisible(RaidFrames, "__nr_container_visible", RaidFrames.container, true)
-    updateCachedVisible(RaidFrames, "__nr_drag_handle_visible", RaidFrames.drag_handle, true)
+    if refreshLayout then
+        updateContainerExtent(cfg, members)
+        updateCachedAlpha(RaidFrames, "__nr_container_alpha", RaidFrames.container, percent01(cfg.alpha_pct, 100))
+        updateCachedVisible(RaidFrames, "__nr_container_visible", RaidFrames.container, true)
+        updateCachedVisible(RaidFrames, "__nr_drag_handle_visible", RaidFrames.drag_handle, true)
+    end
 
     local visibleIndex = 0
-    local activeByIndex = {}
-    local refreshMetadata = flags.update_metadata == true or flags.update_roster == true or flags.force_roster == true
+    local activeByIndex = refreshLayout and {} or nil
     for _, member in ipairs(members) do
         visibleIndex = visibleIndex + 1
-        activeByIndex[member.index] = true
-        local frame = createFrame(member.index)
-        applyFrameLayout(frame, cfg)
-        updateFramePosition(frame, cfg, member, visibleIndex)
-        renderMember(frame, settings, cfg, member, refreshMetadata)
-    end
-
-    for index = 1, MAX_RAID_MEMBERS do
-        local frame = RaidFrames.frames[index]
-        if frame ~= nil and not activeByIndex[index] then
-            updateCachedVisible(frame, "__nr_visible", frame, false)
+        if activeByIndex ~= nil then
+            activeByIndex[member.index] = true
         end
+        local existed = RaidFrames.frames[member.index] ~= nil
+        local frame = createFrame(member.index)
+        local frameNeedsLayout = refreshLayout or not existed or frame.__nr_layout_key == nil
+        if frameNeedsLayout then
+            applyFrameLayout(frame, cfg)
+            updateFramePosition(frame, cfg, member, visibleIndex)
+        end
+        renderMember(frame, settings, cfg, member, updateMetadata, refreshStatic or frameNeedsLayout)
     end
 
-    updateGroupHeaders(cfg, members)
+    if refreshLayout then
+        for index = 1, MAX_RAID_MEMBERS do
+            local frame = RaidFrames.frames[index]
+            if frame ~= nil and not activeByIndex[index] then
+                updateCachedVisible(frame, "__nr_visible", frame, false)
+            end
+        end
+
+        updateGroupHeaders(cfg, members)
+        RaidFrames.__nr_layout_applied = true
+    end
 end
 
 function RaidFrames.Unload()
@@ -2081,6 +2195,9 @@ function RaidFrames.Unload()
     RaidFrames.active_members = {}
     RaidFrames.current_target_id = nil
     RaidFrames.now_ms = 0
+    RaidFrames.__nr_layout_applied = false
+    RaidFrames.__nr_stock_hidden = false
+    RaidFrames.__nr_stock_hide_ms = nil
 end
 
 return RaidFrames

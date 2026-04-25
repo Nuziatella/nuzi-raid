@@ -9,7 +9,7 @@ local RuntimeMath = Core.Runtime
 local addon = {
     name = "Nuzi Raid",
     author = "Nuzi",
-    version = "2.0.0",
+    version = "2.0.1",
     desc = "Custom raid frames"
 }
 
@@ -58,12 +58,13 @@ local vitalsElapsedMs = 0
 local metadataElapsedMs = 0
 local rosterElapsedMs = 0
 local rosterForceElapsedMs = 0
+local updateElapsedMs = 0
 
 local UPDATE_INTERVALS = {
     vitals_ms = 100,
-    metadata_ms = 900,
-    roster_ms = 500,
-    force_roster_ms = 2000
+    metadata_ms = 1500,
+    roster_ms = 5000,
+    force_roster_ms = 10000
 }
 
 local function modulesReady()
@@ -153,6 +154,7 @@ local function onUpdate(dt)
     metadataElapsedMs = metadataElapsedMs + delta
     rosterElapsedMs = rosterElapsedMs + delta
     rosterForceElapsedMs = rosterForceElapsedMs + delta
+    updateElapsedMs = updateElapsedMs + delta
 
     local updateVitals = vitalsElapsedMs >= UPDATE_INTERVALS.vitals_ms
     local updateMetadata = metadataElapsedMs >= UPDATE_INTERVALS.metadata_ms
@@ -160,9 +162,11 @@ local function onUpdate(dt)
     local forceRoster = rosterForceElapsedMs >= UPDATE_INTERVALS.force_roster_ms
     local updateTarget = updateVitals
 
-    if not updateVitals and not updateMetadata and not updateRoster then
+    if not updateVitals and not updateMetadata and not updateRoster and not forceRoster then
         return
     end
+
+    local elapsedForUpdate = updateElapsedMs
 
     if updateVitals then
         vitalsElapsedMs = 0
@@ -176,6 +180,7 @@ local function onUpdate(dt)
     if forceRoster then
         rosterForceElapsedMs = 0
     end
+    updateElapsedMs = 0
 
     local ok, err = pcall(function()
         RaidFrames.OnUpdate(Shared.GetSettings(), {
@@ -183,7 +188,8 @@ local function onUpdate(dt)
             update_metadata = updateMetadata,
             update_roster = updateRoster,
             force_roster = forceRoster,
-            update_target = updateTarget
+            update_target = updateTarget,
+            elapsed_ms = elapsedForUpdate
         })
     end)
     if not ok then
@@ -196,6 +202,7 @@ local function onUiReloaded()
     metadataElapsedMs = 0
     rosterElapsedMs = 0
     rosterForceElapsedMs = 0
+    updateElapsedMs = 0
     Compat.Probe(true)
     RaidFrames.Unload()
     SettingsUi.Unload()
@@ -264,7 +271,6 @@ local function onLoad()
     events:On("CHAT_MESSAGE", onChatMessage)
     events:OptionalOn("TEAM_MEMBERS_CHANGED", onTeamRosterChanged)
     teamEvents:OptionalOn("TEAM_MEMBER_DISCONNECTED", onTeamRosterChanged)
-    teamEvents:OptionalOn("TEAM_ROLE_CHANGED", onTeamRosterChanged)
 
     logger:Info("Loaded v" .. tostring(addon.version) .. ". Use the NR button for settings.")
 end
