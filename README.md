@@ -1,73 +1,59 @@
 # Nuzi Raid
 
-Raid frames, but with less stock nonsense and fewer "why is that important thing hidden?" moments.
+Custom raid frames for AAClassic. STILL BETA but ready for a full release.
 
-`Nuzi Raid` gives you standalone custom raid frames with the controls you actually want nearby:
+## What It Does
 
-- custom raid frame rendering with separate vitals and metadata refresh
-- event-driven refreshes for health, mana, and roster changes
-- settings window with live apply
-- backup, import, and reset controls
-- quick open through the `NR` button or chat command
+- Replaces the visual raid frame with custom Nuzi raid bars.
+- Shows raid member HP, optional MP, names, status text, role badges, class text, target highlight, and debuff alert badges.
+- Supports party columns, single list, compact grid, and party-only layouts.
+- Lets you customize role HP colors, MP colors, HP/MP missing backfill colors, bloodlust team color, text colors, background, target highlight, and debuff alert colors.
+- Supports raid, player, and NPC-style bar textures.
+- Keeps settings, backups, launcher position, and frame position in `nuzi-raid/.data` so updates do not wipe them.
+- Opens from the movable launcher icon or chat commands.
 
 ## Install
 
-1. Drop the `nuzi-raid` folder into your AAClassic `Addon` directory.
-2. Make sure the addon is enabled in game.
-3. Click the `NR` button or use `!pr`, `!polarraid`, or `!nuziraid`.
-
-Saved data lives in `nuzi-raid/.data` so your frame layout and backups survive updates.
+1. Install via Addon Manager.
+2. Make sure `nuzi-raid` is enabled in game.
+3. Click the Nuzi Raid launcher icon or use `!nr` or `!nuziraid`.
 
 ## Quick Start
 
-1. Open the settings with `NR`.
-2. Enable the frames if needed.
-3. Adjust the layout and style settings.
-4. Use `Apply` when you want to push the current settings live.
-5. Save a backup once the frames look the way you want.
+1. Open settings from the launcher icon.
+2. Enable the raid frames if needed.
+3. Pick a layout and adjust bar size, text placement, colors, and textures.
+4. Click `Apply` to update the frames.
+5. Click `Backup` once your layout looks good.
 
-If something goes sideways, `Import` pulls the latest backup back in without requiring a spiritual reset.
+Shift+drag the launcher icon or settings window to move them.
 
-## How To
+## Settings
 
-### Opening Settings
+The settings window is split into:
 
-Use any of these:
+- `General`: enable frames, layout mode, frame position, spacing, and save tools.
+- `Bars`: HP/MP size, textures, role colors, missing backfill colors, bloodlust color, and dead/offline bar colors.
+- `Text`: name, HP text, status text, class text, role badge, placement, and text colors.
+- `Misc`: background, target highlight, debuff alerts, and range fade.
 
-- `NR`
-- `!pr`
-- `!polarraid`
+## Stock Raid Frames
+
+To hide the stock raid display, open the raid manager and uncheck `View Raid Info` under `Status Display`.
+
+## Known Limitations
+
+- Out-of-range raid HP depends on what the addon API and stock raid frame expose. Nuzi Raid tries API data first and uses stock frame data as a fallback, but the client may still hide some values from addons.
+- Right-click menus use the client stock popup menu. Nuzi Raid anchors and raises the popup so it appears at the cursor and above the custom bars.
+- Role colors are based on Nuzi Raid's role/class rules. Role data should be treated as stable while you are in raid.
+- If another addon forces a higher UI layer over menus, it can still interfere with right-click popup visibility.
+- After major UI scale changes, use the settings window to re-align frames and save again.
+
+## Commands
+
+- `!nr`
 - `!nuziraid`
 
-### Settings And Backups
+## Version
 
-The settings window includes:
-
-- `Apply`
-- `Save`
-- `Backup`
-- `Import`
-- `Reset Raid`
-- `Reset Style`
-- `Reset All`
-
-That keeps experimentation much safer than raw file surgery.
-
-### Frame Updates
-
-The addon splits its work into separate update paths for:
-
-- vitals
-- metadata
-- roster
-- target updates
-
-That keeps the frames responsive without hammering every bit of data at the same cadence.
-
-## Notes
-
-- Runtime capability checks are built in, so behavior can vary slightly with what the client exposes.
-- Right-click on a custom raid frame now falls back to the stock target popup path on current clients.
-- If the UI has just reloaded, one extra reload is sometimes the fastest route back to sanity.
-
-2.0.0
+2.0.1

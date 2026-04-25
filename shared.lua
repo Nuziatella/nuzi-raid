@@ -9,15 +9,12 @@ local Shared = {}
 
 Shared.CONSTANTS = {
     ADDON_ID = "nuzi-raid",
-    LEGACY_ADDON_ID = "polar-raid",
     TITLE = "Nuzi Raid",
-    VERSION = "2.0.0",
-    BUTTON_ID = "polarRaidSettingsButton",
-    WINDOW_ID = "polarRaidSettingsWindow",
+    VERSION = "2.0.1",
+    BUTTON_ID = "nuziRaidSettingsButton",
+    WINDOW_ID = "nuziRaidSettingsWindow",
     SETTINGS_FILE_PATH = "nuzi-raid/.data/settings.txt",
-    LEGACY_SETTINGS_FILE_PATH = "polar-raid/settings.txt",
     LEGACY_LOCAL_SETTINGS_FILE_PATH = "nuzi-raid/settings.txt",
-    LEGACY_POLAR_UI_SETTINGS_PATH = "polar-ui/settings.txt",
     SETTINGS_BACKUP_INDEX_FILE_PATH = "nuzi-raid/.data/backups/index.txt",
     LEGACY_SETTINGS_BACKUP_INDEX_FILE_PATH = "nuzi-raid/backups/index.txt",
     SETTINGS_BACKUP_INDEX_FALLBACK_FILE_PATH = "nuzi-raid/.data/settings_backup_index.txt",
@@ -32,6 +29,9 @@ Shared.DEFAULT_SETTINGS = {
     drag_requires_shift = true,
     button_x = 90,
     button_y = 420,
+    button_size = 48,
+    window_x = 520,
+    window_y = 90,
     role = {
         tanks = {
             "Abolisher",
@@ -43,14 +43,30 @@ Shared.DEFAULT_SETTINGS = {
         }
     },
     style = {
-        hp_texture_mode = "stock",
+        hp_texture_mode = "raid",
         bar_colors_enabled = true,
         hp_fill_color = { 44, 168, 84, 255 },
         hp_bar_color = { 44, 168, 84, 255 },
         hp_after_color = { 44, 168, 84, 255 },
         mp_fill_color = { 86, 198, 239, 255 },
         mp_bar_color = { 86, 198, 239, 255 },
-        mp_after_color = { 86, 198, 239, 255 }
+        mp_after_color = { 86, 198, 239, 255 },
+        bloodlust_team_color = { 255, 45, 0, 255 },
+        name_color = { 255, 255, 255, 255 },
+        value_color = { 255, 255, 255, 255 },
+        status_color = { 220, 150, 150, 255 },
+        background_color = { 13, 13, 15, 255 },
+        target_highlight_color = { 255, 230, 120, 72 },
+        debuff_alert_color = { 255, 68, 68, 235 },
+        dispellable_debuff_color = { 255, 210, 72, 235 },
+        defender_role_color = { 255, 210, 70, 255 },
+        healer_role_color = { 255, 120, 205, 255 },
+        attacker_role_color = { 255, 95, 95, 255 },
+        undecided_role_color = { 110, 170, 255, 255 },
+        offline_bar_color = { 100, 100, 100, 255 },
+        dead_bar_color = { 150, 70, 70, 255 },
+        offline_text_color = { 180, 180, 180, 255 },
+        dead_text_color = { 220, 150, 150, 255 }
     },
     raidframes = {
         enabled = true,
@@ -74,23 +90,33 @@ Shared.DEFAULT_SETTINGS = {
         icon_gap = 2,
         icon_offset_x = 0,
         icon_offset_y = 0,
+        class_offset_x = 0,
+        class_offset_y = 0,
         show_role_badge = false,
+        role_offset_x = 0,
+        role_offset_y = 0,
         hide_dps_role_badge = true,
-        use_team_role_colors = false,
+        use_team_role_colors = true,
         use_role_name_colors = true,
         use_class_name_colors = false,
+        text_colors_override_role_colors = false,
         show_value_text = true,
         value_text_mode = "missing",
         value_font_size = 12,
         value_offset_x = 0,
         value_offset_y = 0,
         show_status_text = true,
+        status_offset_x = 0,
+        status_offset_y = 0,
         range_fade_enabled = true,
         range_max_distance = 80,
         range_alpha_pct = 45,
         dead_alpha_pct = 30,
         offline_alpha_pct = 20,
         show_debuff_alert = true,
+        debuff_size = 8,
+        debuff_offset_x = 0,
+        debuff_offset_y = 0,
         prefer_dispel_alert = true,
         show_target_highlight = true,
         show_group_headers = false,
@@ -106,8 +132,7 @@ Shared.DEFAULT_SETTINGS = {
 
 Shared.CONSTANTS.DEFAULT_SETTINGS = Shared.DEFAULT_SETTINGS
 Shared.CONSTANTS.LEGACY_SETTINGS_FILE_PATHS = {
-    Shared.CONSTANTS.LEGACY_LOCAL_SETTINGS_FILE_PATH,
-    Shared.CONSTANTS.LEGACY_SETTINGS_FILE_PATH
+    Shared.CONSTANTS.LEGACY_LOCAL_SETTINGS_FILE_PATH
 }
 
 Shared.state = {
@@ -126,33 +151,23 @@ local function tableHasEntries(value)
     return false
 end
 
-local function buildMigratedSettings(legacy)
-    local out = Runtime.DeepCopy(Shared.DEFAULT_SETTINGS)
-    if type(legacy) ~= "table" then
-        return out, false
-    end
-    if type(legacy.raidframes) == "table" then
-        Runtime.MergeInto(out.raidframes, legacy.raidframes)
-    end
-    if type(legacy.style) == "table" then
-        Runtime.MergeInto(out.style, legacy.style)
-    end
-    if type(legacy.role) == "table" then
-        Runtime.MergeInto(out.role, legacy.role)
-    end
-    if legacy.drag_requires_shift ~= nil then
-        out.drag_requires_shift = legacy.drag_requires_shift and true or false
-    end
-    out.migrated_from_polar_ui = true
-    return out, true
-end
-
 local function normalizeSettings(settings)
     if type(settings) ~= "table" then
         return false
     end
 
     local changed = false
+    local oldHpBarColor = type(settings.style) == "table" and settings.style.hp_bar_color or nil
+    local oldMpBarColor = type(settings.style) == "table" and settings.style.mp_bar_color or nil
+    local missingHpFillColor = type(settings.style) == "table" and settings.style.hp_fill_color == nil
+    local missingHpAfterColor = type(settings.style) == "table" and settings.style.hp_after_color == nil
+    local missingMpFillColor = type(settings.style) == "table" and settings.style.mp_fill_color == nil
+    local missingMpAfterColor = type(settings.style) == "table" and settings.style.mp_after_color == nil
+    local raidBeforeDefaults = type(settings.raidframes) == "table" and settings.raidframes or nil
+    local missingClassOffsetX = raidBeforeDefaults ~= nil and raidBeforeDefaults.class_offset_x == nil
+    local missingClassOffsetY = raidBeforeDefaults ~= nil and raidBeforeDefaults.class_offset_y == nil
+    local missingRoleOffsetX = raidBeforeDefaults ~= nil and raidBeforeDefaults.role_offset_x == nil
+    local missingRoleOffsetY = raidBeforeDefaults ~= nil and raidBeforeDefaults.role_offset_y == nil
 
     if Runtime.ApplyDefaults(settings, Shared.DEFAULT_SETTINGS) then
         changed = true
@@ -177,9 +192,76 @@ local function normalizeSettings(settings)
         changed = true
     end
 
+    local buttonX = Runtime.Clamp(settings.button_x, 0, 4000, Shared.DEFAULT_SETTINGS.button_x)
+    local buttonY = Runtime.Clamp(settings.button_y, 0, 4000, Shared.DEFAULT_SETTINGS.button_y)
+    local buttonSize = Runtime.Clamp(settings.button_size, 32, 96, Shared.DEFAULT_SETTINGS.button_size)
+    if settings.button_x ~= buttonX then
+        settings.button_x = buttonX
+        changed = true
+    end
+    if settings.button_y ~= buttonY then
+        settings.button_y = buttonY
+        changed = true
+    end
+    if settings.button_size ~= buttonSize then
+        settings.button_size = buttonSize
+        changed = true
+    end
+
     if type(settings.raidframes) == "table" and settings.raidframes.right_click_fallback_menu ~= nil then
         settings.raidframes.right_click_fallback_menu = nil
         changed = true
+    end
+
+    if type(settings.raidframes) == "table" then
+        if settings.raidframes.hide_stock ~= false then
+            settings.raidframes.hide_stock = false
+            changed = true
+        end
+        if settings.raidframes.use_team_role_colors ~= true then
+            settings.raidframes.use_team_role_colors = true
+            changed = true
+        end
+        if missingClassOffsetX and settings.raidframes.icon_offset_x ~= nil then
+            settings.raidframes.class_offset_x = settings.raidframes.icon_offset_x
+            changed = true
+        end
+        if missingClassOffsetY and settings.raidframes.icon_offset_y ~= nil then
+            settings.raidframes.class_offset_y = settings.raidframes.icon_offset_y
+            changed = true
+        end
+        if missingRoleOffsetX and settings.raidframes.icon_offset_x ~= nil then
+            settings.raidframes.role_offset_x = settings.raidframes.icon_offset_x
+            changed = true
+        end
+        if missingRoleOffsetY and settings.raidframes.icon_offset_y ~= nil then
+            settings.raidframes.role_offset_y = settings.raidframes.icon_offset_y
+            changed = true
+        end
+    end
+
+    if type(settings.style) == "table" then
+        local textureMode = tostring(settings.style.hp_texture_mode or "raid")
+        if textureMode ~= "raid" and textureMode ~= "pc" and textureMode ~= "npc" then
+            settings.style.hp_texture_mode = "raid"
+            changed = true
+        end
+        if missingHpFillColor and type(oldHpBarColor) == "table" then
+            settings.style.hp_fill_color = Runtime.DeepCopy(oldHpBarColor)
+            changed = true
+        end
+        if missingHpAfterColor and type(oldHpBarColor) == "table" then
+            settings.style.hp_after_color = Runtime.DeepCopy(oldHpBarColor)
+            changed = true
+        end
+        if missingMpFillColor and type(oldMpBarColor) == "table" then
+            settings.style.mp_fill_color = Runtime.DeepCopy(oldMpBarColor)
+            changed = true
+        end
+        if missingMpAfterColor and type(oldMpBarColor) == "table" then
+            settings.style.mp_after_color = Runtime.DeepCopy(oldMpBarColor)
+            changed = true
+        end
     end
 
     return changed
@@ -255,35 +337,11 @@ local function saveLoadedSettings(settings, sourceLabel)
     return settings
 end
 
-local function tryLoadPolarUiMigration()
-    local parsed = nil
-    parsed = Settings.ReadFlexibleTable(Shared.CONSTANTS.LEGACY_POLAR_UI_SETTINGS_PATH, {
-        mode = "serialized_then_flat",
-        raw_text_fallback = true
-    })
-    if type(parsed) ~= "table" or not tableHasEntries(parsed) then
-        return nil
-    end
-
-    local migrated, didMigrate = buildMigratedSettings(parsed)
-    if not didMigrate then
-        return nil
-    end
-    logger:Info("Migrating settings from polar-ui/settings.txt")
-    return migrated
-end
-
 local function tryLoadApiSeed()
     local current = readApiSettings(Shared.CONSTANTS.ADDON_ID)
     if type(current) == "table" then
         logger:Info("Seeding settings from api.GetSettings(" .. Shared.CONSTANTS.ADDON_ID .. ")")
         return current
-    end
-
-    local legacy = readApiSettings(Shared.CONSTANTS.LEGACY_ADDON_ID)
-    if type(legacy) == "table" then
-        logger:Info("Seeding settings from api.GetSettings(" .. Shared.CONSTANTS.LEGACY_ADDON_ID .. ")")
-        return legacy
     end
 
     return nil
@@ -306,11 +364,6 @@ function Shared.LoadSettings()
     local hasLoadedFile = type(meta) == "table" and type(meta.source_kind) == "string" and meta.source_kind ~= "none"
     if hasLoadedFile or (type(meta) == "table" and meta.has_primary) then
         return settings
-    end
-
-    local polarUiSettings = tryLoadPolarUiMigration()
-    if type(polarUiSettings) == "table" then
-        return saveLoadedSettings(polarUiSettings, Shared.CONSTANTS.LEGACY_POLAR_UI_SETTINGS_PATH)
     end
 
     local apiSeed = tryLoadApiSeed()

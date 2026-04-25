@@ -246,7 +246,7 @@ local function onChatMessage(_, _, _, senderName, message)
     if playerName ~= nil and senderName ~= nil and tostring(senderName) ~= "" and tostring(senderName) ~= tostring(playerName) then
         return
     end
-    if raw == "!pr" or raw == "!polarraid" or raw == "!nuziraid" then
+    if raw == "!nr" or raw == "!nuziraid" then
         SettingsUi.Toggle()
     end
 end
@@ -272,7 +272,7 @@ local function onLoad()
     events:OptionalOn("TEAM_MEMBERS_CHANGED", onTeamRosterChanged)
     teamEvents:OptionalOn("TEAM_MEMBER_DISCONNECTED", onTeamRosterChanged)
 
-    logger:Info("Loaded v" .. tostring(addon.version) .. ". Use the NR button for settings.")
+    logger:Info("Loaded v" .. tostring(addon.version) .. ". Use the launcher icon for settings.")
 end
 
 local function onUnload()
