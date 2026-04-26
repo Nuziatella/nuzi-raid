@@ -67,18 +67,23 @@ function Format.FormatName(name, maxChars)
     return text
 end
 
-function Format.GetUnitState(info, modifier, hp, maxHp, offline)
+function Format.HasDeadSignal(info, modifier)
+    return truthyMatch(info, { "dead", "death", "ghost" }, 1)
+        or truthyMatch(modifier, { "dead", "death", "ghost" }, 1)
+end
+
+function Format.GetUnitState(info, modifier, hp, maxHp, offline, unknownVitals)
     local dead = false
-    if not offline and tonumber(maxHp) ~= nil and tonumber(maxHp) > 0 and tonumber(hp) ~= nil and tonumber(hp) <= 0 then
+    if not unknownVitals and not offline and tonumber(maxHp) ~= nil and tonumber(maxHp) > 0 and tonumber(hp) ~= nil and tonumber(hp) <= 0 then
         dead = true
     end
     if not dead then
-        dead = truthyMatch(info, { "dead", "death", "ghost" }, 1)
-            or truthyMatch(modifier, { "dead", "death", "ghost" }, 1)
+        dead = Format.HasDeadSignal(info, modifier)
     end
     return {
         offline = offline and true or false,
-        dead = dead and true or false
+        dead = dead and true or false,
+        unknown = unknownVitals and not offline and not dead
     }
 end
 

@@ -56,9 +56,11 @@ local DEFAULT_HP_COLOR = { 223, 69, 69, 255 }
 local DEFAULT_MP_COLOR = { 86, 198, 239, 255 }
 local OFFLINE_BAR_COLOR = { 100, 100, 100, 255 }
 local DEAD_BAR_COLOR = { 150, 70, 70, 255 }
+local UNKNOWN_BAR_COLOR = { 105, 110, 118, 255 }
 local DEFAULT_TEXT_COLOR = { 255, 255, 255, 255 }
 local OFFLINE_TEXT_COLOR = { 180, 180, 180, 255 }
 local DEAD_TEXT_COLOR = { 220, 150, 150, 255 }
+local UNKNOWN_TEXT_COLOR = { 190, 190, 190, 255 }
 local TARGET_TINT_COLOR = { 255, 230, 120, 72 }
 local DEBUFF_BADGE_COLOR = { 255, 68, 68, 235 }
 local DISPELLABLE_DEBUFF_BADGE_COLOR = { 255, 210, 72, 235 }
@@ -159,6 +161,7 @@ local getRolePrefix = FormatHelpers.GetRolePrefix
 local getRoleBadge = FormatHelpers.GetRoleBadge
 local getClassBadge = FormatHelpers.GetClassBadge
 local formatName = FormatHelpers.FormatName
+local hasDeadSignal = FormatHelpers.HasDeadSignal
 local getUnitState = FormatHelpers.GetUnitState
 local getValueText = FormatHelpers.GetValueText
 local mergeResourceValues = FormatHelpers.MergeResourceValues
@@ -450,11 +453,18 @@ local function savePosition()
             x, y = container:GetOffset()
         end)
     end
+    if (type(x) ~= "number" or type(y) ~= "number") and container ~= nil and type(container.GetEffectiveOffset) == "function" then
+        pcall(function()
+            x, y = container:GetEffectiveOffset()
+        end)
+    end
     if type(x) == "number" then
         raid.x = x
+        container.__nr_x = x
     end
     if type(y) == "number" then
         raid.y = y
+        container.__nr_y = y
     end
     Shared.SaveSettings()
 end
@@ -487,6 +497,87 @@ local function canDragContainer()
         return ok and down == true
     end
     return true
+end
+
+local function isLeftDragButton(button)
+    if button == nil then
+        return true
+    end
+    return button == "LeftButton" or button == "LeftButtonDown" or button == "LeftButtonUp" or button == 1
+end
+
+local function startContainerDrag()
+    local wnd = RaidFrames.container
+    if wnd == nil or wnd.__nr_dragging == true or not canDragContainer() then
+        return
+    end
+    if wnd.StartMoving ~= nil then
+        local ok = pcall(function()
+            wnd:StartMoving()
+        end)
+        if ok then
+            wnd.__nr_dragging = true
+        end
+    end
+end
+
+local function stopContainerDrag()
+    local wnd = RaidFrames.container
+    if wnd == nil or wnd.__nr_dragging ~= true then
+        return
+    end
+    wnd.__nr_dragging = false
+    if wnd.StopMovingOrSizing ~= nil then
+        pcall(function()
+            wnd:StopMovingOrSizing()
+        end)
+    end
+    savePosition()
+    raiseMemberFrames()
+end
+
+local function attachContainerDragTarget(target)
+    if target == nil then
+        return
+    end
+    if target.RegisterForDrag ~= nil then
+        pcall(function()
+            target:RegisterForDrag("LeftButton")
+        end)
+    end
+    if target.EnableDrag ~= nil then
+        pcall(function()
+            target:EnableDrag(true)
+        end)
+    end
+    safeClickable(target, true)
+    safeEnablePick(target, true)
+    if target.SetHandler ~= nil then
+        pcall(function()
+            target:SetHandler("OnDragStart", function()
+                startContainerDrag()
+            end)
+        end)
+        pcall(function()
+            target:SetHandler("OnDragStop", function()
+                stopContainerDrag()
+            end)
+        end)
+        pcall(function()
+            target:SetHandler("OnMouseDown", function(_, button)
+                if isLeftDragButton(button) then
+                    startContainerDrag()
+                end
+            end)
+        end)
+        pcall(function()
+            target:SetHandler("OnMouseUp", function(_, button)
+                if isLeftDragButton(button) then
+                    stopContainerDrag()
+                end
+            end)
+        end)
+    end
 end
 
 local function applyContainerPosition(cfg)
@@ -533,53 +624,20 @@ local function ensureContainer()
                 dragLabel.style:SetAlign(ALIGN_REF.LEFT)
             end
         end
-        safeClickable(dragLabel, false)
-        safeEnablePick(dragLabel, false)
     end)
 
     pcall(function()
         if wnd.EnableDrag ~= nil then
-            wnd:EnableDrag(false)
+            wnd:EnableDrag(true)
+        end
+        if wnd.RegisterForDrag ~= nil then
+            wnd:RegisterForDrag("LeftButton")
         end
         safeClickable(wnd, false)
     end)
 
-    function dragHandle:OnDragStart()
-        if not canDragContainer() then
-            return
-        end
-        if wnd.StartMoving ~= nil then
-            wnd:StartMoving()
-            wnd.__nr_dragging = true
-        end
-    end
-
-    function dragHandle:OnDragStop()
-        if wnd.__nr_dragging ~= true then
-            return
-        end
-        wnd.__nr_dragging = false
-        if wnd.StopMovingOrSizing ~= nil then
-            wnd:StopMovingOrSizing()
-        end
-        savePosition()
-        raiseMemberFrames()
-    end
-
-    pcall(function()
-        if dragHandle.SetHandler ~= nil then
-            dragHandle:SetHandler("OnDragStart", dragHandle.OnDragStart)
-            dragHandle:SetHandler("OnDragStop", dragHandle.OnDragStop)
-        end
-        if dragHandle.RegisterForDrag ~= nil then
-            dragHandle:RegisterForDrag("LeftButton")
-        end
-        if dragHandle.EnableDrag ~= nil then
-            dragHandle:EnableDrag(true)
-        end
-        safeClickable(dragHandle, true)
-        safeEnablePick(dragHandle, true)
-    end)
+    attachContainerDragTarget(dragHandle)
+    attachContainerDragTarget(dragLabel)
 
     RaidFrames.container = wnd
     RaidFrames.drag_handle = dragHandle
@@ -656,6 +714,7 @@ local function ensureGroupHeader(groupIndex)
             end
         end
     end)
+    attachContainerDragTarget(header)
 
     RaidFrames.group_headers[groupIndex] = header
     return header
@@ -1545,6 +1604,8 @@ local function getFrameAlpha(frame, cfg, unit, state)
         alpha = alpha * percent01(cfg.offline_alpha_pct, 20)
     elseif state.dead then
         alpha = alpha * percent01(cfg.dead_alpha_pct, 30)
+    elseif state.unknown then
+        alpha = alpha * percent01(cfg.range_alpha_pct, 45)
     elseif cfg.range_fade_enabled ~= false then
         local now = tonumber(RaidFrames.now_ms) or 0
         local distance = frame.__nr_cached_distance
@@ -1578,7 +1639,7 @@ local function getCachedOffline(frame, unit)
 end
 
 local function getCachedBloodlustState(frame, member, state)
-    if frame == nil or type(member) ~= "table" or state.offline or state.dead then
+    if frame == nil or type(member) ~= "table" or state.offline or state.dead or state.unknown then
         return false
     end
 
@@ -1620,6 +1681,9 @@ local function getHpColor(settings, cfg, member, state, bloodlustActive)
     if state.dead then
         return colorOrFallback(settings, "dead_bar_color", DEAD_BAR_COLOR)
     end
+    if state.unknown then
+        return UNKNOWN_BAR_COLOR
+    end
     if bloodlustActive == true then
         return colorOrFallback(settings, "bloodlust_team_color", { 255, 45, 0, 255 })
     end
@@ -1634,7 +1698,7 @@ local function getHpColor(settings, cfg, member, state, bloodlustActive)
 end
 
 local function getHpAfterColor(settings, cfg, member, state, bloodlustActive)
-    if state.offline or state.dead then
+    if state.offline or state.dead or state.unknown then
         return getHpColor(settings, cfg, member, state, bloodlustActive)
     end
     if bloodlustActive == true then
@@ -1683,6 +1747,9 @@ local function getNameColor(settings, cfg, member, state)
     end
     if state.dead then
         return colorOrFallback(settings, "dead_text_color", DEAD_TEXT_COLOR)
+    end
+    if state.unknown then
+        return UNKNOWN_TEXT_COLOR
     end
     if cfg.text_colors_override_role_colors == true then
         return colorOrFallback(settings, "name_color", DEFAULT_TEXT_COLOR)
@@ -1992,28 +2059,55 @@ local function renderMember(frame, settings, cfg, member, refreshMetadata, refre
             mp, maxMp = preferStockResource(mp, maxMp, stockMp, stockMaxMp)
         end
     end
-    hp, maxHp = mergeResourceValues(hp, maxHp, frame.__nr_last_hp, frame.__nr_last_max_hp)
-    mp, maxMp = mergeResourceValues(mp, maxMp, frame.__nr_last_mp, frame.__nr_last_max_mp)
-    if hasUsableVitals(hp, maxHp) then
-        frame.__nr_last_hp = hp
-        frame.__nr_last_max_hp = maxHp
-    end
-    if hasUsableVitals(mp, maxMp) then
-        frame.__nr_last_mp = mp
-        frame.__nr_last_max_mp = maxMp
-    end
     local offline = getCachedOffline(frame, member.unit)
     local modifier = frame.__nr_modifier
     if refreshMetadata or modifier == nil then
         modifier = safeUnitModifierInfo(member.unit)
         frame.__nr_modifier = modifier
     end
-    local state = getUnitState(member.info, modifier, hp, maxHp, offline)
+    local rawHp = hp
+    local rawMaxHp = maxHp
+    local deadSignal = hasDeadSignal(member.info, modifier)
+    local unknownVitals = not offline
+        and not deadSignal
+        and (
+            not hasUsableVitals(rawHp, rawMaxHp)
+            or (tonumber(rawHp) ~= nil and tonumber(rawHp) <= 0)
+        )
+    if unknownVitals then
+        hp = nil
+        maxHp = nil
+        if showMpBar then
+            mp = nil
+            maxMp = nil
+        end
+    end
+    hp, maxHp = mergeResourceValues(hp, maxHp, frame.__nr_last_hp, frame.__nr_last_max_hp)
+    mp, maxMp = mergeResourceValues(mp, maxMp, frame.__nr_last_mp, frame.__nr_last_max_mp)
+    if unknownVitals and not hasUsableVitals(hp, maxHp) then
+        hp = 1
+        maxHp = 1
+    end
+    if unknownVitals and showMpBar and not hasUsableVitals(mp, maxMp) then
+        mp = 1
+        maxMp = 1
+    end
+    if hasUsableVitals(hp, maxHp) and not unknownVitals then
+        frame.__nr_last_hp = hp
+        frame.__nr_last_max_hp = maxHp
+    end
+    if hasUsableVitals(mp, maxMp) and not unknownVitals then
+        frame.__nr_last_mp = mp
+        frame.__nr_last_max_mp = maxMp
+    end
+    local state = getUnitState(member.info, modifier, hp, maxHp, offline, unknownVitals)
     local statusText = ""
     if state.offline then
         statusText = "Offline"
     elseif state.dead then
         statusText = "Dead"
+    elseif state.unknown then
+        statusText = "Unknown"
     end
 
     applyFrameTextures(frame, settings, cfg, member, state)
@@ -2028,14 +2122,17 @@ local function renderMember(frame, settings, cfg, member, refreshMetadata, refre
     local bloodlustActive = getCachedBloodlustState(frame, member, state)
     local nameColor = getNameColor(settings, cfg, member, state)
     local valueColor = colorOrFallback(settings, "value_color", nameColor)
-    local baseStatusColor = state.dead
-        and colorOrFallback(settings, "dead_text_color", DEAD_TEXT_COLOR)
-        or colorOrFallback(settings, "offline_text_color", OFFLINE_TEXT_COLOR)
+    local baseStatusColor = UNKNOWN_TEXT_COLOR
+    if state.dead then
+        baseStatusColor = colorOrFallback(settings, "dead_text_color", DEAD_TEXT_COLOR)
+    elseif state.offline then
+        baseStatusColor = colorOrFallback(settings, "offline_text_color", OFFLINE_TEXT_COLOR)
+    end
     local statusColor = colorOrFallback(settings, "status_color", baseStatusColor)
     local hpColor = getHpColor(settings, cfg, member, state, bloodlustActive)
     local hpAfterColor = getHpAfterColor(settings, cfg, member, state, bloodlustActive)
-    local mpColor = showMpBar and getMpColor(settings, cfg) or nil
-    local mpAfterColor = showMpBar and getMpAfterColor(settings, cfg) or nil
+    local mpColor = showMpBar and (state.unknown and UNKNOWN_BAR_COLOR or getMpColor(settings, cfg)) or nil
+    local mpAfterColor = showMpBar and (state.unknown and UNKNOWN_BAR_COLOR or getMpAfterColor(settings, cfg)) or nil
 
     local showValue = cfg.show_value_text and statusText == ""
     local showStatus = cfg.show_status_text ~= false and statusText ~= ""

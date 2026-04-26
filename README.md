@@ -57,4 +57,4 @@ To hide the stock raid display, open the raid manager and uncheck `View Raid Inf
 
 ## Version
 
-2.0.4
+2.0.5

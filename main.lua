@@ -9,7 +9,7 @@ local RuntimeMath = Core.Runtime
 local addon = {
     name = "Nuzi Raid",
     author = "Nuzi",
-    version = "2.0.4",
+    version = "2.0.5",
     desc = "Custom raid frames"
 }
 
