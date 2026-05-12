@@ -16,7 +16,6 @@ local FormatHelpers = loadModule("raid_format_helpers")
 local globals = type(_G) == "table" and _G or nil
 local ALIGN_REF = type(ALIGN) == "table" and ALIGN or (globals ~= nil and globals.ALIGN or nil)
 local ActivatePopupMenuRef = type(ActivatePopupMenu) == "function" and ActivatePopupMenu or (globals ~= nil and globals.ActivatePopupMenu or nil)
-local CreateUnitFrameRef = type(CreateUnitFrame) == "function" and CreateUnitFrame or (globals ~= nil and globals.CreateUnitFrame or nil)
 local StatusBarStyleRef = type(STATUSBAR_STYLE) == "table" and STATUSBAR_STYLE or (globals ~= nil and globals.STATUSBAR_STYLE or nil)
 local TexturePathRef = type(TEXTURE_PATH) == "table" and TEXTURE_PATH or (globals ~= nil and globals.TEXTURE_PATH or nil)
 local WIconRef = type(W_ICON) == "table" and W_ICON or (globals ~= nil and globals.W_ICON or nil)
@@ -73,7 +72,6 @@ local percent01 = Helpers.Percent01
 local trim = Helpers.Trim
 local safeShow = Helpers.SafeShow
 local safeApplyBarTexture = Helpers.SafeApplyBarTexture
-local safeSetWidgetTarget = Helpers.SafeSetWidgetTarget
 local safeAssignWidgetField = Helpers.SafeAssignWidgetField
 local getBarValueTarget = Helpers.GetBarValueTarget
 local safeSetExtent = Helpers.SafeSetExtent
@@ -128,15 +126,6 @@ local function raisePopupMenu(popup)
         for _, button in ipairs(popup.buttons) do
             safeRaise(button)
         end
-    end
-end
-
-local function disablePopupOwnerInput(owner)
-    safeEnablePick(owner, false)
-    safeClickable(owner, false)
-    if owner ~= nil then
-        safeEnablePick(owner.eventWindow, false)
-        safeClickable(owner.eventWindow, false)
     end
 end
 
@@ -426,6 +415,54 @@ local function getPartyBlockHeight(cfg)
         height = height + HEADER_HEIGHT + HEADER_GAP
     end
     return height
+end
+
+local function getUiScaleKey()
+    if api.Interface == nil or api.Interface.GetUIScale == nil then
+        return nil
+    end
+    local ok, value = pcall(function()
+        return api.Interface:GetUIScale()
+    end)
+    if not ok then
+        return nil
+    end
+    local scale = tonumber(value)
+    if scale == nil then
+        return nil
+    end
+    return tostring(math.floor((scale * 1000) + 0.5))
+end
+
+local function invalidateLayoutGeometry()
+    if RaidFrames.container ~= nil then
+        RaidFrames.container.__nr_x = nil
+        RaidFrames.container.__nr_y = nil
+        RaidFrames.container.__nr_extent_key = nil
+    end
+    for _, frame in pairs(RaidFrames.frames) do
+        frame.__nr_x = nil
+        frame.__nr_y = nil
+        frame.__nr_layout_key = nil
+    end
+    RaidFrames.__nr_layout_applied = false
+end
+
+local function detectUiScaleChange()
+    local scaleKey = getUiScaleKey()
+    if scaleKey == nil then
+        return false
+    end
+    if RaidFrames.__nr_ui_scale_key == nil then
+        RaidFrames.__nr_ui_scale_key = scaleKey
+        return false
+    end
+    if RaidFrames.__nr_ui_scale_key == scaleKey then
+        return false
+    end
+    RaidFrames.__nr_ui_scale_key = scaleKey
+    invalidateLayoutGeometry()
+    return true
 end
 
 local function createColorDrawable(owner, name, r, g, b, a)
@@ -939,14 +976,8 @@ local function showPopupMenu(frame)
         return false
     end
 
-    local owners = {
-        frame.popupOwner,
-        frame
-    }
-    for _, owner in ipairs(owners) do
-        if activateRaidPopup(owner, popupKind, memberIndex) then
-            return true
-        end
+    if activateRaidPopup(frame, popupKind, memberIndex) then
+        return true
     end
     return showPopupMenuViaRaidManager(frame, memberIndex)
 end
@@ -1005,29 +1036,6 @@ local function createEventWindow(frameId, parent)
     return eventWindow
 end
 
-local function createPopupOwner(frameId, parent)
-    if CreateUnitFrameRef == nil then
-        return nil
-    end
-    local owner = nil
-    local ok = pcall(function()
-        owner = CreateUnitFrameRef(frameId .. ".popup", parent)
-    end)
-    if not ok or owner == nil then
-        return nil
-    end
-    pcall(function()
-        owner:Show(true)
-        if owner.SetAlpha ~= nil then
-            owner:SetAlpha(0)
-        end
-        safeSetUiLayer(owner, RAID_UI_LAYER)
-        disablePopupOwnerInput(owner)
-    end)
-    disablePopupOwnerInput(owner)
-    return owner
-end
-
 local function safeRegisterFrameClicks(widget)
     if widget == nil or widget.RegisterForClicks == nil then
         return
@@ -1067,7 +1075,6 @@ local function createFrame(index)
     frame.mpAfterBar = createRaidBar(frameId .. ".mpAfterBar", frame)
     frame.mpBar = createRaidBar(frameId .. ".mpBar", frame)
     frame.debuffBadge = createColorDrawable(frame, "artwork", 1, 0.27, 0.27, 0.92)
-    frame.popupOwner = createPopupOwner(frameId, frame)
     frame.eventWindow = createEventWindow(frameId, frame)
     frame.clickOverlay = nil
 
@@ -1168,7 +1175,7 @@ local function createFrame(index)
     local function handleFrameClick(self, button)
         local clickButton = getClickButton(self, button)
         local source = getClickSource(self, button)
-        frame.__nr_popup_owner = frame.popupOwner or frame
+        frame.__nr_popup_owner = frame
         if isRightClick(clickButton) then
             showPopupMenu(frame)
             return
@@ -1177,7 +1184,7 @@ local function createFrame(index)
     end
     local function handleFrameMouseUp(self, button)
         local clickButton = getClickButton(self, button)
-        frame.__nr_popup_owner = frame.popupOwner or frame
+        frame.__nr_popup_owner = frame
         if isRightClick(clickButton) then
             showPopupMenu(frame)
         end
@@ -1372,13 +1379,6 @@ local function applyFrameLayout(frame, cfg)
         safeSetExtent(frame.debuffBadge, debuffSize, debuffSize)
     end
 
-    if frame.popupOwner ~= nil then
-        safeAnchor(frame.popupOwner, "TOPLEFT", frame, "TOPLEFT", 0, 0)
-        pcall(function()
-            frame.popupOwner:AddAnchor("BOTTOMRIGHT", frame, "BOTTOMRIGHT", 0, 0)
-        end)
-        disablePopupOwnerInput(frame.popupOwner)
-    end
     if frame.eventWindow ~= nil then
         safeAnchor(frame.eventWindow, "TOPLEFT", frame, "TOPLEFT", 0, 0)
         pcall(function()
@@ -1891,14 +1891,13 @@ local function applyMemberWidgetBindings(frame, member, resolvedUnitId)
     frame.__raid_member_index = member.index
     frame.__raid_party = party
     frame.__raid_slot = slot
-    frame.__nr_popup_owner = frame.popupOwner or frame
+    frame.__nr_popup_owner = frame
 
     if frame.__nr_bound_unit == member.unit
         and frame.__nr_bound_unit_id == resolvedUnitId
         and frame.__nr_bound_index == member.index
         and frame.__nr_bound_party == party
-        and frame.__nr_bound_slot == slot
-        and frame.__nr_bound_popup_owner == frame.popupOwner then
+        and frame.__nr_bound_slot == slot then
         return false
     end
 
@@ -1907,7 +1906,6 @@ local function applyMemberWidgetBindings(frame, member, resolvedUnitId)
     frame.__nr_bound_index = member.index
     frame.__nr_bound_party = party
     frame.__nr_bound_slot = slot
-    frame.__nr_bound_popup_owner = frame.popupOwner
     frame.__nr_last_hp = nil
     frame.__nr_last_max_hp = nil
     frame.__nr_last_mp = nil
@@ -1929,10 +1927,6 @@ local function applyMemberWidgetBindings(frame, member, resolvedUnitId)
 
     assignMemberFields(frame, member, resolvedUnitId, party, slot)
     assignMemberFields(frame.eventWindow, member, resolvedUnitId, party, slot)
-    safeSetWidgetTarget(frame.popupOwner, member.unit, resolvedUnitId, member.name)
-    assignMemberFields(frame.popupOwner, member, resolvedUnitId, party, slot)
-    assignMemberFields(frame.popupOwner ~= nil and frame.popupOwner.eventWindow or nil, member, resolvedUnitId, party, slot)
-    disablePopupOwnerInput(frame.popupOwner)
     return true
 end
 
@@ -2283,6 +2277,7 @@ function RaidFrames.OnUpdate(settings, updateFlags)
     local updateRoster = flags.update_roster == true or flags.force_roster == true
     local updateMetadata = flags.update_metadata == true or updateRoster
     local updateTarget = flags.update_target == true or RaidFrames.current_target_id == nil
+    local uiScaleChanged = detectUiScaleChange()
 
     if not (RaidFrames.enabled and cfg.enabled) then
         updateCachedVisible(RaidFrames, "__nr_container_visible", RaidFrames.container, false)
@@ -2311,7 +2306,7 @@ function RaidFrames.OnUpdate(settings, updateFlags)
         members = rebuildRoster(cfg)
         rosterRebuilt = true
     end
-    local refreshLayout = rosterRebuilt or flags.force_layout == true or RaidFrames.__nr_layout_applied ~= true
+    local refreshLayout = rosterRebuilt or flags.force_layout == true or uiScaleChanged or RaidFrames.__nr_layout_applied ~= true
     local refreshStatic = updateMetadata or refreshLayout
 
     if refreshLayout then
@@ -2408,6 +2403,7 @@ function RaidFrames.Unload()
     RaidFrames.current_target_id = nil
     RaidFrames.now_ms = 0
     RaidFrames.__nr_layout_applied = false
+    RaidFrames.__nr_ui_scale_key = nil
     RaidFrames.__nr_stock_hidden = false
     RaidFrames.__nr_stock_hide_ms = nil
 end

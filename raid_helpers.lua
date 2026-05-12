@@ -70,32 +70,6 @@ function Helpers.SafeApplyBarTexture(bar, style)
     end)
 end
 
-function Helpers.SafeSetWidgetTarget(widget, unit, unitId, name)
-    if widget == nil or widget.SetTarget == nil then
-        return false
-    end
-    for index = 1, 3 do
-        local candidate = nil
-        if index == 1 then
-            candidate = unit
-        elseif index == 2 then
-            candidate = unitId
-        else
-            candidate = name
-        end
-        local value = Helpers.Trim(candidate)
-        if value ~= "" then
-            local ok = pcall(function()
-                widget:SetTarget(candidate)
-            end)
-            if ok then
-                return true
-            end
-        end
-    end
-    return false
-end
-
 function Helpers.SafeAssignWidgetField(widget, key, value)
     if widget == nil or key == nil then
         return
