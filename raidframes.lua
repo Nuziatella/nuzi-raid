@@ -28,8 +28,6 @@ local RaidFrames = {
     settings = nil,
     enabled = true,
     active_members = {},
-    unit_ids_by_index = {},
-    unit_ids_by_name = {},
     current_target_id = nil,
     now_ms = 0,
     popup_anchor_to_cursor = false,
@@ -1292,6 +1290,8 @@ local function applyFrameLayout(frame, cfg)
     end
 
     if frame.hpAfterBar ~= nil then
+        safeShow(frame.hpAfterBar, true)
+        safeShow(getBarValueTarget(frame.hpAfterBar), true)
         safeAnchor(frame.hpAfterBar, "TOPLEFT", frame, "TOPLEFT", 0, 0)
         pcall(function()
             frame.hpAfterBar:AddAnchor("TOPRIGHT", frame, "TOPRIGHT", 0, 0)
@@ -1302,6 +1302,8 @@ local function applyFrameLayout(frame, cfg)
     end
 
     if frame.hpBar ~= nil then
+        safeShow(frame.hpBar, true)
+        safeShow(getBarValueTarget(frame.hpBar), true)
         safeAnchor(frame.hpBar, "TOPLEFT", frame, "TOPLEFT", 0, 0)
         pcall(function()
             frame.hpBar:AddAnchor("TOPRIGHT", frame, "TOPRIGHT", 0, 0)
@@ -1319,6 +1321,7 @@ local function applyFrameLayout(frame, cfg)
         safeSetHeight(frame.mpAfterBar, mpHeight)
         safeSetHeight(getBarValueTarget(frame.mpAfterBar), mpHeight)
         safeShow(frame.mpAfterBar, showMp)
+        safeShow(getBarValueTarget(frame.mpAfterBar), showMp)
         safeRaise(frame.mpAfterBar)
     end
 
@@ -1330,6 +1333,7 @@ local function applyFrameLayout(frame, cfg)
         safeSetHeight(frame.mpBar, mpHeight)
         safeSetHeight(getBarValueTarget(frame.mpBar), mpHeight)
         safeShow(frame.mpBar, showMp)
+        safeShow(getBarValueTarget(frame.mpBar), showMp)
         safeRaise(frame.mpBar)
     end
 
@@ -1380,6 +1384,7 @@ local function applyFrameLayout(frame, cfg)
     end
 
     if frame.eventWindow ~= nil then
+        safeShow(frame.eventWindow, true)
         safeAnchor(frame.eventWindow, "TOPLEFT", frame, "TOPLEFT", 0, 0)
         pcall(function()
             frame.eventWindow:AddAnchor("BOTTOMRIGHT", frame, "BOTTOMRIGHT", 0, 0)
@@ -1418,64 +1423,16 @@ local function tryHideStockRaidFrames(cfg, force)
     RaidFrames.__nr_stock_hide_ms = now
 end
 
-local function cacheMemberUnitId(index, name, unitId)
-    if unitId == nil or unitId == "" then
-        return
-    end
-    local memberIndex = tonumber(index)
-    if memberIndex ~= nil then
-        RaidFrames.unit_ids_by_index[memberIndex] = unitId
-    end
-    local cleanName = trim(name)
-    if cleanName ~= "" then
-        RaidFrames.unit_ids_by_name[string.lower(cleanName)] = unitId
-    end
-end
-
-local function clearMemberUnitIdCache(index, name)
-    local memberIndex = tonumber(index)
-    if memberIndex ~= nil then
-        RaidFrames.unit_ids_by_index[memberIndex] = nil
-    end
-    local cleanName = trim(name)
-    if cleanName ~= "" then
-        RaidFrames.unit_ids_by_name[string.lower(cleanName)] = nil
-    end
-end
-
-local function getCachedMemberUnitId(index, name)
-    local cleanName = trim(name)
-    if cleanName ~= "" then
-        local unitId = RaidFrames.unit_ids_by_name[string.lower(cleanName)]
-        if unitId ~= nil then
-            return unitId
-        end
-    end
-    local memberIndex = tonumber(index)
-    if memberIndex ~= nil then
-        return RaidFrames.unit_ids_by_index[memberIndex]
-    end
-    return nil
-end
-
 local function buildMember(unit, index)
     if not isUnitTeamMember(unit) then
-        clearMemberUnitIdCache(index, nil)
         return nil
     end
     local info = safeUnitInfo(unit)
     local unitId = safeUnitId(unit)
     local name = safeUnitName(unit, info, unitId)
-    if unitId == nil or unitId == "" then
-        unitId = getCachedMemberUnitId(index, name)
-        if name == "" and unitId ~= nil then
-            name = safeUnitName(unit, info, unitId)
-        end
-    end
     if name == "" and unitId == nil then
         return nil
     end
-    cacheMemberUnitId(index, name, unitId)
     return {
         unit = unit,
         index = index,
@@ -1487,11 +1444,54 @@ local function buildMember(unit, index)
     }
 end
 
+local function resetFrameVisibilityCache(frame)
+    if frame == nil then
+        return
+    end
+    frame.__nr_visible = nil
+    frame.__nr_hp_after_visible = nil
+    frame.__nr_mp_after_visible = nil
+    frame.__nr_name_visible = nil
+    frame.__nr_meta_visible = nil
+    frame.__nr_value_visible = nil
+    frame.__nr_status_visible = nil
+    frame.__nr_badge_visible = nil
+    frame.__nr_target_visible = nil
+    frame.__nr_debuff_visible = nil
+    frame.__nr_bg_visible = nil
+    frame.__nr_leader_visible = nil
+end
+
+local function hideMemberFrame(frame)
+    if frame == nil then
+        return
+    end
+    resetFrameVisibilityCache(frame)
+    safeShow(frame, false)
+    safeShow(frame.bg, false)
+    safeShow(frame.targetTint, false)
+    safeShow(frame.hpAfterBar, false)
+    safeShow(getBarValueTarget(frame.hpAfterBar), false)
+    safeShow(frame.hpBar, false)
+    safeShow(getBarValueTarget(frame.hpBar), false)
+    safeShow(frame.mpAfterBar, false)
+    safeShow(getBarValueTarget(frame.mpAfterBar), false)
+    safeShow(frame.mpBar, false)
+    safeShow(getBarValueTarget(frame.mpBar), false)
+    safeShow(frame.nameLabel, false)
+    safeShow(frame.metaLabel, false)
+    safeShow(frame.leaderMark, false)
+    safeShow(frame.valueLabel, false)
+    safeShow(frame.statusLabel, false)
+    safeShow(frame.badgeLabel, false)
+    safeShow(frame.debuffBadge, false)
+    safeShow(frame.eventWindow, false)
+end
+
 local function hideMissingMemberFrame(member)
     if type(member) ~= "table" then
         return
     end
-    clearMemberUnitIdCache(member.index, member.name)
     local frame = RaidFrames.frames[member.index]
     if frame ~= nil then
         frame.__nr_last_hp = nil
@@ -1500,6 +1500,7 @@ local function hideMissingMemberFrame(member)
         frame.__nr_last_max_mp = nil
         frame.__nr_bound_unit = nil
         frame.__nr_bound_unit_id = nil
+        frame.__nr_bound_name = nil
         frame.__nr_bound_index = nil
         frame.__nr_static_rendered = false
         frame.__nr_modifier = nil
@@ -1517,14 +1518,7 @@ local function hideMissingMemberFrame(member)
         frame.__nr_bloodlust_next_scan_ms = 0
         frame.__raid_unit_id = nil
         frame.__raid_name = nil
-        frame.__nr_visible = nil
-        frame.__nr_hp_after_visible = nil
-        frame.__nr_mp_after_visible = nil
-        frame.__nr_leader_visible = nil
-        updateCachedVisible(frame, "__nr_visible", frame, false)
-        updateCachedVisible(frame, "__nr_hp_after_visible", frame.hpAfterBar, false)
-        updateCachedVisible(frame, "__nr_mp_after_visible", frame.mpAfterBar, false)
-        updateCachedVisible(frame, "__nr_leader_visible", frame.leaderMark, false)
+        hideMemberFrame(frame)
     end
 end
 
@@ -1543,11 +1537,10 @@ local function refreshMemberSnapshot(member, refreshMetadata)
     member.__nr_missing = false
     local info = safeUnitInfo(member.unit)
     local unitId = safeUnitId(member.unit)
-    if unitId == nil or unitId == "" then
-        unitId = getCachedMemberUnitId(member.index, member.name)
-    end
     if unitId ~= nil and unitId ~= "" then
         member.unit_id = unitId
+    else
+        member.unit_id = nil
     end
     if type(info) == "table" then
         member.info = info
@@ -1560,10 +1553,16 @@ local function refreshMemberSnapshot(member, refreshMetadata)
     local resolvedInfo = member.info
     local resolvedUnitId = member.unit_id
     local name = safeUnitName(member.unit, resolvedInfo, resolvedUnitId)
+    if name == "" and resolvedUnitId == nil then
+        hideMissingMemberFrame(member)
+        member.__nr_missing = true
+        member.name = ""
+        member.info = nil
+        return member
+    end
     if name ~= "" then
         member.name = name
     end
-    cacheMemberUnitId(member.index, member.name, member.unit_id)
     if refreshMetadata then
         member.class_name = safeUnitClassName(member.unit, resolvedInfo)
         member.role_key = getTeamRoleKey(member.name)
@@ -1895,6 +1894,7 @@ local function applyMemberWidgetBindings(frame, member, resolvedUnitId)
 
     if frame.__nr_bound_unit == member.unit
         and frame.__nr_bound_unit_id == resolvedUnitId
+        and frame.__nr_bound_name == member.name
         and frame.__nr_bound_index == member.index
         and frame.__nr_bound_party == party
         and frame.__nr_bound_slot == slot then
@@ -1903,6 +1903,7 @@ local function applyMemberWidgetBindings(frame, member, resolvedUnitId)
 
     frame.__nr_bound_unit = member.unit
     frame.__nr_bound_unit_id = resolvedUnitId
+    frame.__nr_bound_name = member.name
     frame.__nr_bound_index = member.index
     frame.__nr_bound_party = party
     frame.__nr_bound_slot = slot
@@ -2043,7 +2044,6 @@ local function renderMember(frame, settings, cfg, member, refreshMetadata, refre
     end
     if member.unit_id == nil and resolvedUnitId ~= nil then
         member.unit_id = resolvedUnitId
-        cacheMemberUnitId(member.index, member.name, resolvedUnitId)
     end
     local hp, maxHp, mp, maxMp = safeUnitHealth(member.unit, resolvedUnitId, showMpBar)
     if not hasUsableVitals(hp, maxHp) or (showMpBar and not hasUsableVitals(mp, maxMp)) then
@@ -2258,7 +2258,7 @@ function RaidFrames.SetEnabled(enabled)
     if not RaidFrames.enabled then
         updateCachedVisible(RaidFrames, "__nr_container_visible", RaidFrames.container, false)
         for _, frame in pairs(RaidFrames.frames) do
-            updateCachedVisible(frame, "__nr_visible", frame, false)
+            hideMemberFrame(frame)
         end
         for _, header in pairs(RaidFrames.group_headers) do
             updateCachedVisible(header, "__nr_visible", header, false)
@@ -2282,7 +2282,7 @@ function RaidFrames.OnUpdate(settings, updateFlags)
     if not (RaidFrames.enabled and cfg.enabled) then
         updateCachedVisible(RaidFrames, "__nr_container_visible", RaidFrames.container, false)
         for _, frame in pairs(RaidFrames.frames) do
-            updateCachedVisible(frame, "__nr_visible", frame, false)
+            hideMemberFrame(frame)
         end
         for _, header in pairs(RaidFrames.group_headers) do
             updateCachedVisible(header, "__nr_visible", header, false)
@@ -2319,7 +2319,7 @@ function RaidFrames.OnUpdate(settings, updateFlags)
     if #members == 0 then
         updateCachedVisible(RaidFrames, "__nr_container_visible", RaidFrames.container, false)
         for _, frame in pairs(RaidFrames.frames) do
-            updateCachedVisible(frame, "__nr_visible", frame, false)
+            hideMemberFrame(frame)
         end
         for _, header in pairs(RaidFrames.group_headers) do
             updateCachedVisible(header, "__nr_visible", header, false)
@@ -2355,7 +2355,7 @@ function RaidFrames.OnUpdate(settings, updateFlags)
         for index = 1, MAX_RAID_MEMBERS do
             local frame = RaidFrames.frames[index]
             if frame ~= nil and not activeByIndex[index] then
-                updateCachedVisible(frame, "__nr_visible", frame, false)
+                hideMemberFrame(frame)
             end
         end
 
@@ -2398,8 +2398,6 @@ function RaidFrames.Unload()
     RaidFrames.group_headers = {}
     RaidFrames.settings = nil
     RaidFrames.active_members = {}
-    RaidFrames.unit_ids_by_index = {}
-    RaidFrames.unit_ids_by_name = {}
     RaidFrames.current_target_id = nil
     RaidFrames.now_ms = 0
     RaidFrames.__nr_layout_applied = false

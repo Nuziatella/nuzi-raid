@@ -9,7 +9,7 @@ local RuntimeMath = Core.Runtime
 local addon = {
     name = "Nuzi Raid",
     author = "Nuzi",
-    version = "2.0.7",
+    version = "2.0.8",
     desc = "Custom raid frames"
 }
 
@@ -59,6 +59,7 @@ local metadataElapsedMs = 0
 local rosterElapsedMs = 0
 local rosterForceElapsedMs = 0
 local updateElapsedMs = 0
+local rosterSettleRefreshes = 0
 
 local UPDATE_INTERVALS = {
     vitals_ms = 100,
@@ -158,8 +159,9 @@ local function onUpdate(dt)
 
     local updateVitals = vitalsElapsedMs >= UPDATE_INTERVALS.vitals_ms
     local updateMetadata = metadataElapsedMs >= UPDATE_INTERVALS.metadata_ms
-    local updateRoster = rosterElapsedMs >= UPDATE_INTERVALS.roster_ms
-    local forceRoster = rosterForceElapsedMs >= UPDATE_INTERVALS.force_roster_ms
+    local settleRoster = rosterSettleRefreshes > 0 and updateVitals
+    local updateRoster = rosterElapsedMs >= UPDATE_INTERVALS.roster_ms or settleRoster
+    local forceRoster = rosterForceElapsedMs >= UPDATE_INTERVALS.force_roster_ms or settleRoster
     local updateTarget = updateVitals
 
     if not updateVitals and not updateMetadata and not updateRoster and not forceRoster then
@@ -179,6 +181,9 @@ local function onUpdate(dt)
     end
     if forceRoster then
         rosterForceElapsedMs = 0
+    end
+    if settleRoster then
+        rosterSettleRefreshes = rosterSettleRefreshes - 1
     end
     updateElapsedMs = 0
 
@@ -203,6 +208,7 @@ local function onUiReloaded()
     rosterElapsedMs = 0
     rosterForceElapsedMs = 0
     updateElapsedMs = 0
+    rosterSettleRefreshes = 0
     Compat.Probe(true)
     RaidFrames.Unload()
     SettingsUi.Unload()
@@ -231,6 +237,7 @@ local function refreshRaidFrames(flags)
 end
 
 local function onTeamRosterChanged()
+    rosterSettleRefreshes = 3
     refreshRaidFrames({
         update_vitals = true,
         update_metadata = true,
