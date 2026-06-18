@@ -522,14 +522,24 @@ local function raiseMemberFrames()
     end
 end
 
-local function canDragContainer()
-    local settings = Shared ~= nil and Shared.GetSettings() or nil
-    local dragRequiresShift = type(settings) == "table" and settings.drag_requires_shift
-    if dragRequiresShift and api.Input ~= nil and api.Input.IsShiftKeyDown ~= nil then
+local function isShiftDown()
+    if api.Input ~= nil and api.Input.IsShiftKeyDown ~= nil then
         local ok, down = pcall(function()
             return api.Input:IsShiftKeyDown()
         end)
         return ok and down == true
+    end
+    return false
+end
+
+local function canDragContainer(forceShift)
+    if forceShift then
+        return isShiftDown()
+    end
+    local settings = Shared ~= nil and Shared.GetSettings() or nil
+    local dragRequiresShift = type(settings) == "table" and settings.drag_requires_shift
+    if dragRequiresShift then
+        return isShiftDown()
     end
     return true
 end
@@ -541,10 +551,10 @@ local function isLeftDragButton(button)
     return button == "LeftButton" or button == "LeftButtonDown" or button == "LeftButtonUp" or button == 1
 end
 
-local function startContainerDrag()
+local function startContainerDrag(forceShift)
     local wnd = RaidFrames.container
-    if wnd == nil or wnd.__nr_dragging == true or not canDragContainer() then
-        return
+    if wnd == nil or wnd.__nr_dragging == true or not canDragContainer(forceShift) then
+        return false
     end
     if wnd.StartMoving ~= nil then
         local ok = pcall(function()
@@ -552,14 +562,16 @@ local function startContainerDrag()
         end)
         if ok then
             wnd.__nr_dragging = true
+            return true
         end
     end
+    return false
 end
 
 local function stopContainerDrag()
     local wnd = RaidFrames.container
     if wnd == nil or wnd.__nr_dragging ~= true then
-        return
+        return false
     end
     wnd.__nr_dragging = false
     if wnd.StopMovingOrSizing ~= nil then
@@ -569,6 +581,7 @@ local function stopContainerDrag()
     end
     savePosition()
     raiseMemberFrames()
+    return true
 end
 
 local function attachContainerDragTarget(target)
@@ -934,6 +947,10 @@ local function activateRaidPopup(owner, popupKind, memberIndex)
     end)
 end
 
+local function startMemberFrameDrag()
+    return startContainerDrag(true)
+end
+
 local function showPopupMenuViaRaidManager(frame, memberIndex)
     if memberIndex == nil or Runtime == nil or UIC == nil or UIC.RAID_MANAGER == nil then
         return false
@@ -1171,6 +1188,10 @@ local function createFrame(index)
         return frame.eventWindow or frame
     end
     local function handleFrameClick(self, button)
+        if frame.__nr_suppress_next_click then
+            frame.__nr_suppress_next_click = nil
+            return
+        end
         local clickButton = getClickButton(self, button)
         local source = getClickSource(self, button)
         frame.__nr_popup_owner = frame
@@ -1180,9 +1201,33 @@ local function createFrame(index)
         end
         targetUnit((source ~= nil and (source.target or source.unit)) or frame.__raid_unit)
     end
+    local function handleFrameDragStart()
+        if startMemberFrameDrag() then
+            frame.__nr_drag_started = true
+        end
+    end
+    local function handleFrameDragStop()
+        if frame.__nr_drag_started then
+            frame.__nr_drag_started = nil
+            frame.__nr_suppress_next_click = true
+        end
+        stopContainerDrag()
+    end
+    local function handleFrameMouseDown(self, button)
+        local clickButton = getClickButton(self, button)
+        if isLeftDragButton(clickButton) and startMemberFrameDrag() then
+            frame.__nr_drag_started = true
+        end
+    end
     local function handleFrameMouseUp(self, button)
         local clickButton = getClickButton(self, button)
         frame.__nr_popup_owner = frame
+        if isLeftDragButton(clickButton) and frame.__nr_drag_started then
+            frame.__nr_drag_started = nil
+            frame.__nr_suppress_next_click = true
+            stopContainerDrag()
+            return
+        end
         if isRightClick(clickButton) then
             showPopupMenu(frame)
         end
@@ -1195,8 +1240,14 @@ local function createFrame(index)
     pcall(function()
         if frame.eventWindow ~= nil and frame.eventWindow.SetHandler ~= nil then
             frame.eventWindow:SetHandler("OnClick", frame.OnClick)
+            frame.eventWindow:SetHandler("OnDragStart", handleFrameDragStart)
+            frame.eventWindow:SetHandler("OnDragStop", handleFrameDragStop)
+            frame.eventWindow:SetHandler("OnMouseDown", handleFrameMouseDown)
             frame.eventWindow:SetHandler("OnMouseUp", handleFrameMouseUp)
             safeClickable(frame.eventWindow, true)
+            if frame.eventWindow.RegisterForDrag ~= nil then
+                frame.eventWindow:RegisterForDrag("LeftButton")
+            end
             safeRegisterFrameClicks(frame.eventWindow)
         end
     end)
